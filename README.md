@@ -29,4 +29,6 @@ Release 签名配置在仓库外部维护。不要提交 keystore、私钥或本
 
 ## 许可证
 
-MIT License
+PolyForm Noncommercial License 1.0.0
+
+仅允许非商业使用；禁止商业使用。
