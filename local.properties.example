@@ -1,0 +1,6 @@
+# Copy these keys to local.properties or set them as environment variables.
+# Do not commit local.properties or the keystore file.
+RELEASE_STORE_FILE=official.keystore
+RELEASE_STORE_PASSWORD=
+RELEASE_KEY_ALIAS=
+RELEASE_KEY_PASSWORD=

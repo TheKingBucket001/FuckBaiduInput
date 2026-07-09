@@ -1,0 +1,41 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Build outputs
+app/build/
+*.apk
+
+# IDE
+.idea/
+*.iml
+
+# Kotlin
+.kotlin/
+
+# Gradle
+.gradle/
+
+# Misc
+nohup.out
+setup_android_env.sh
+.backup/
+.operit/
+
+# Test files (template leftovers)
+app/src/androidTest/
+app/src/test/
+official.keystore
+official_private.key
