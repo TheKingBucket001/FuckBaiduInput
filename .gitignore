@@ -39,3 +39,11 @@ app/src/androidTest/
 app/src/test/
 official.keystore
 official_private.key
+
+# Release signing material. Keep formal and local test keys outside Git.
+*.jks
+*.keystore
+*.p12
+*.pfx
+/signing.properties
+/keystore.properties

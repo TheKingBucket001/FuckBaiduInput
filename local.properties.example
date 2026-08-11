@@ -1,5 +1,10 @@
-# Copy these keys to local.properties or set them as environment variables.
-# Do not commit local.properties or the keystore file.
+# Formal release signing only. Copy to local.properties or set as environment
+# variables when verifying the formal key locally. Do not commit local.properties,
+# the keystore, a private key, or signing.properties.
+# Do not point these values at txtoi-local or any test key.
+# GitHub Actions restores the same formal key from repository Secrets:
+# RELEASE_KEYSTORE_BASE64, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS,
+# RELEASE_KEY_PASSWORD.
 RELEASE_STORE_FILE=official.keystore
 RELEASE_STORE_PASSWORD=
 RELEASE_KEY_ALIAS=
