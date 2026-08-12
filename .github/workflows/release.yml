@@ -1,4 +1,4 @@
-name: Verify and Sign APK
+name: Verify and Release APK
 
 on:
   workflow_dispatch:
@@ -15,7 +15,6 @@ jobs:
   verify:
     name: Verify source
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -30,8 +29,7 @@ jobs:
         uses: android-actions/setup-android@v4
 
       - name: Install Android packages
-        run: |
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
@@ -44,12 +42,12 @@ jobs:
           ./gradlew :app:assembleDebug :app:lintDebug --stacktrace --console=plain
 
   signed-release:
-    name: Build formally signed release APK
+    name: Build and publish formally signed release APK
     needs: verify
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
-      startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -64,8 +62,7 @@ jobs:
         uses: android-actions/setup-android@v4
 
       - name: Install Android packages
-        run: |
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
@@ -92,20 +89,54 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:checkReleaseSigning :app:signRelease --stacktrace --console=plain
 
-      - name: Verify formal release signature
+      - name: Verify signature and release metadata
+        env:
+          TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          APK="app/build/outputs/apk/release/app-release.apk"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const metadataPath = 'app/build/outputs/apk/release/output-metadata.json';
+          const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+          if (!Array.isArray(metadata.elements) || metadata.elements.length !== 1) {
+            throw new Error('Expected exactly one release APK output.');
+          }
+          const element = metadata.elements[0];
+          const versionName = String(metadata.versionName ?? '');
+          const versionCode = Number(metadata.versionCode);
+          if (!/^\d+\.\d+\.\d+$/.test(versionName) || !Number.isInteger(versionCode) || versionCode < 10) {
+            throw new Error(`Invalid release metadata: ${versionName} / ${versionCode}`);
+          }
+          if (process.env.TAG_NAME !== `v${versionName}`) {
+            throw new Error(`Tag ${process.env.TAG_NAME} does not match APK version v${versionName}.`);
+          }
+          const source = path.join('app/build/outputs/apk/release', element.outputFile);
+          if (!fs.existsSync(source)) throw new Error(`Missing APK: ${source}`);
+          const target = `FuckBaiduInput-v${versionName}.apk`;
+          fs.copyFileSync(source, target);
+          fs.writeFileSync(process.env.GITHUB_ENV, `RELEASE_VERSION=${versionName}\nRELEASE_APK=${target}\n`, { flag: 'a' });
+          NODE
           APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
-          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/apksigner.txt"
+          "$APKSIGNER" verify --verbose --print-certs "$RELEASE_APK" | tee "$RUNNER_TEMP/apksigner.txt"
           EXPECTED_CERT_SHA256="7CA9B268208613247C63081F9AC7B7697062A63CF529DE74F0A8C80973FAFC56"
           tr -d ':' < "$RUNNER_TEMP/apksigner.txt" | tr '[:lower:]' '[:upper:]' | grep -Fq "$EXPECTED_CERT_SHA256"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ github.ref_name }}" "$RELEASE_APK" \
+            --title "FuckBaiduInput v$RELEASE_VERSION" \
+            --notes-file ".github/release-notes/v$RELEASE_VERSION.md" \
+            --verify-tag
 
       - name: Upload formally signed artifact
         uses: actions/upload-artifact@v6
         with:
           name: FuckBaiduInput-${{ github.ref_name }}-signed
-          path: app/build/outputs/apk/release/app-release.apk
+          path: ${{ env.RELEASE_APK }}
           if-no-files-found: error
           retention-days: 30
 

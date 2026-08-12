@@ -34,9 +34,6 @@ setup_android_env.sh
 .backup/
 .operit/
 
-# Test files (template leftovers)
-app/src/androidTest/
-app/src/test/
 official.keystore
 official_private.key
 

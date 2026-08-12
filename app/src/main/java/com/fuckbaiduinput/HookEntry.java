@@ -1,11 +1,38 @@
 package com.fuckbaiduinput;
 
+import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
 import android.util.Log;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.TextView;
 
+import java.io.InputStream;
+import java.lang.reflect.Array;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.WeakHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.security.MessageDigest;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 import io.github.libxposed.api.XposedInterface.ExceptionMode;
 import io.github.libxposed.api.XposedModule;
@@ -14,6 +41,64 @@ import io.github.libxposed.api.XposedModuleInterface;
 public final class HookEntry extends XposedModule {
     private static final String TAG = "FuckBaiduInput";
     private static final String TARGET_PACKAGE = "com.baidu.input_oppo";
+    private static final String SETTINGS_FEEDBACK_KEY = "FEEDBACK";
+    private static final String SETTINGS_CIKU_KEY = "ciku";
+    private static final String SETTINGS_GENERAL_KEY = "general_setting";
+    private static final String SETTINGS_INTENT_RECOMMEND_KEY = "intent_recommend";
+    private static final String SETTINGS_SKIN_KEY = "skin";
+    private static final String CLOUD_OPTIMIZATION_KEY = "CLOUDOPTIMIZATION";
+    private static final String CLOUD_BACKUP_KEY = "cloud_backup";
+    private static final String CLOUD_USER_CIKU_ROOT_KEY = "cloud_user_ciku_root";
+    private static final String CLOUD_BACKUP_SETTINGS_ROOT_KEY = "cloud_backup_settings_root";
+    private static final String CLOUD_INPUT_KEY = "YUNSHURU";
+    private static final String PROGRAMMATIC_AD_KEY = "pref_key_personalize_ad";
+    private static final String UNIQUE_RESULT_KEY = "unique_result_switch";
+    private static final String ACTIVITY_RECOMMENDATION_KEY = "activity_recommendation";
+    private static final String CANDIDATE_ADVERTISEMENT_KEY = "cand_advertisement";
+    private static final String TOOLBOX_SEARCH = "CLICK_INDEX_SEARCH";
+    private static final String TOOLBOX_MECHANICAL_KEYBOARD =
+            "CLICK_INDEX_MECHANICAL_KEYBOARD";
+    private static final String TOOLBOX_FONT_SETTING = "CLICK_INDEX_FONT_SETTING";
+    private static final String TOOLBOX_CLOUD_SYNC = "CLICK_INDEX_SYN";
+    private static final String TOOLBOX_FEEDBACK = "CLICK_INDEX_FEEDBACK";
+    private static final String TOOLBOX_INTENT_RECOMMEND =
+            "CLICK_INDEX_INTENT_RECOMMEND";
+    private static final String TURBO_CLOUD_INTENT_FUNCTION = "FUNCTION_CLOUD_INTENT";
+    private static final String SETTINGS_PAGE_TYPE_EXTRA = "settype";
+    private static final String FEEDBACK_URL_EXTRA = "url";
+    private static final String BLANK_WEB_URL = "about:blank";
+    private static final String SHOP_SKIN_TAB = "skin_shop";
+    private static final String SHOP_EMOTION_TAB = "emotion_shop";
+    private static final String SHOP_FONT_TAB = "font_shop";
+    private static final String SHOP_MY_TAB = "my_center_shop";
+    private static final int SHOP_MASK_SKIN = 1;
+    private static final int SHOP_MASK_EMOTION = 1 << 1;
+    private static final int SHOP_MASK_FONT = 1 << 2;
+    private static final String MY_CENTER_DYNAMIC_PAGE_MARK = "my_center_oem_oppo";
+    private static final int CIKU_TITLE_RES_ID = 0x7f1201ea;
+    private static final int INTENT_RECOMMEND_TITLE_RES_ID = 0x7f120654;
+    private static final int USER_EMOTION_TITLE_RES_ID = 0x7f120e5d;
+    private static final int UNIQUE_RESULT_SERVICE_TYPE = 201;
+    private static final int TURBO_MODE_GUIDE_LAYOUT_RES_ID = 0x7f0d03b8;
+    private static final int VIEW_ID_TURBO_CLOUD_INTENT_SWITCH = 0x7f0a067b;
+    private static final int VIEW_ID_TURBO_CLOUD_INTENT_ICON = 0x7f0a06bd;
+    private static final int CLOUD_BACKUP_PAGE_TYPE = 16;
+    private static final int SEARCH_FUNCTION_OPCODE = 82;
+    private static final byte CLOUD_OPTIMIZATION_ROUTE = 12;
+    private static final byte CLOUD_BACKUP_ROUTE = 31;
+    private static final byte FEEDBACK_ROUTE = 58;
+    private static final byte FONT_SETTING_ROUTE = 111;
+    private static final byte INTENT_RECOMMEND_ROUTE = 112;
+    private static final int VIEW_ID_AD_CONTAINER = 0x7f0a007f;
+    private static final int VIEW_ID_CL_FEEDBACK = 0x7f0a02bb;
+    private static final int VIEW_ID_CL_HEADER = 0x7f0a02bc;
+    private static final int VIEW_ID_CL_LOGIN = 0x7f0a02c0;
+    private static final int VIEW_ID_LINE_HELP = 0x7f0a07ab;
+    private static final int VIEW_ID_MEMBER_BANNER = 0x7f0a0905;
+    private static final int HOST_VERSION_CODE = 7244;
+    private static final String HOST_VERSION_NAME = "8.5.302.367";
+    private static final String HOST_MANIFEST_SHA256 =
+            "29BD64DAB35B776DFCD90301A155EA68AC8F880AA61D5E82C75AC02457F867A8";
 
     private static final int ORIGINAL_CLIP_COUNT = 0x12c;
     private static final int MAX_CLIP_COUNT = 0x1869f;
@@ -24,13 +109,6 @@ public final class HookEntry extends XposedModule {
     private static final String MAX_COUNTER_SUFFIX_FULL_WIDTH = "/" + MAX_CLIP_COUNT + "\uff09";
     private static final HookProfile[] HOOK_PROFILES = {
             new HookProfile(
-                    "8.5.302.328",
-                    "com.baidu.vq1",
-                    "com.baidu.er1",
-                    "com.baidu.iq1",
-                    "com.baidu.er1$i"
-            ),
-            new HookProfile(
                     "8.5.302.367",
                     "com.baidu.uq1",
                     "com.baidu.dr1",
@@ -39,6 +117,26 @@ public final class HookEntry extends XposedModule {
             )
     };
 
+    /*
+     * The remote preference object and listener are deliberately retained for
+     * the lifetime of the module instance.  RemotePreferences does not keep a
+     * strong reference to listeners, so a field is required to receive live
+     * changes without introducing a second local settings store.
+     */
+    private final AtomicReference<FeatureSnapshot> featureSnapshot =
+            new AtomicReference<>(FeatureSnapshot.disabled());
+    private final Object featureSnapshotLock = new Object();
+    private final Object featureWriteLock = new Object();
+    private SharedPreferences featurePreferences;
+    private final SharedPreferences.OnSharedPreferenceChangeListener featureListener =
+            (preferences, key) -> refreshFeatureSnapshot(preferences);
+    private HostSettingsUi hostSettingsUi;
+    private final Map<Object, ShopTabState> shopTabStates =
+            Collections.synchronizedMap(new WeakHashMap<>());
+    private final Set<Activity> feedbackActivities = Collections.synchronizedSet(
+            Collections.newSetFromMap(new WeakHashMap<>())
+    );
+
     @Override
     public void onPackageReady(XposedModuleInterface.PackageReadyParam param) {
         if (!TARGET_PACKAGE.equals(param.getPackageName())) {
@@ -46,17 +144,244 @@ public final class HookEntry extends XposedModule {
         }
 
         ClassLoader classLoader = param.getClassLoader();
+        if (!isSupportedHostVersion(classLoader, param.getApplicationInfo())) {
+            logMessage("unsupported host version in " + param.getPackageName());
+            return;
+        }
+        initializeFeatureSnapshot();
+        initializeHostSettingsUi(classLoader);
         HookTargets targets = findMatchingTargets(classLoader);
         if (targets == null) {
             logMessage("no matching hook profile in " + param.getPackageName());
-            return;
+        } else {
+            logMessage("loading clipboard profile " + targets.profile.versionName);
+            hookClipboardConfig(targets);
+            hookClipboardPanel(targets);
+            hookPasteTruncation(targets);
+            hookRecordLengthFilter(targets);
         }
 
-        logMessage("loading in " + param.getPackageName() + " with profile " + targets.profile.versionName);
-        hookClipboardConfig(targets);
-        hookClipboardPanel(targets);
-        hookPasteTruncation(targets);
-        hookRecordLengthFilter(targets);
+        hookClipboardRecognition(classLoader);
+        hookCleanUi(classLoader);
+        hookModuleSettingsPage(classLoader);
+        hookBlockedSettingsRoutes(classLoader);
+        hookShopStartup(classLoader);
+        hookBackgroundUpdateCheck(classLoader);
+        hookRemoteSkinUpgradeCheck(classLoader);
+        safe("account isolation", () -> hookAccountIsolation(classLoader));
+        hookPrivacyTelemetry(classLoader);
+        hookAdSdkGates(classLoader);
+        hookCandidateAdvertisement(classLoader);
+    }
+
+    private void initializeFeatureSnapshot() {
+        try {
+            if (getApiVersion() < 101
+                    || (getFrameworkProperties() & PROP_CAP_REMOTE) == 0L) {
+                logMessage("remote preferences unavailable; all features remain disabled");
+                return;
+            }
+            SharedPreferences preferences = getRemotePreferences(
+                    HookSettingsContract.REMOTE_PREFERENCES_GROUP);
+            if (preferences == null) {
+                logMessage("remote preferences returned null; all features remain disabled");
+                return;
+            }
+            if (featurePreferences != preferences) {
+                if (featurePreferences != null) {
+                    featurePreferences.unregisterOnSharedPreferenceChangeListener(featureListener);
+                }
+                featurePreferences = preferences;
+                preferences.registerOnSharedPreferenceChangeListener(featureListener);
+            }
+            refreshFeatureSnapshot(preferences);
+        } catch (Throwable t) {
+            featureSnapshot.set(FeatureSnapshot.disabled());
+            logMessage("remote preferences initialization failed: " + t);
+        }
+    }
+
+    private void refreshFeatureSnapshot(SharedPreferences preferences) {
+        try {
+            FeatureSnapshot refreshed = FeatureSnapshot.from(preferences);
+            if (!refreshed.isSchemaValid()) {
+                featureSnapshot.set(FeatureSnapshot.disabled());
+                return;
+            }
+            applyFeatureSnapshot(refreshed);
+        } catch (Throwable t) {
+            featureSnapshot.set(FeatureSnapshot.disabled());
+            logMessage("feature snapshot refresh failed: " + t);
+        }
+    }
+
+    private void applyFeatureSnapshot(FeatureSnapshot refreshed) {
+        boolean finishFeedback;
+        long revision;
+        synchronized (featureSnapshotLock) {
+            FeatureSnapshot current = featureSnapshot.get();
+            if (current.isSchemaValid() && refreshed.revision() < current.revision()) {
+                return;
+            }
+            finishFeedback = !current.isEnabled(HookFeature.FEEDBACK_BLOCK)
+                    && refreshed.isEnabled(HookFeature.FEEDBACK_BLOCK);
+            featureSnapshot.set(refreshed);
+            revision = refreshed.revision();
+        }
+        if (finishFeedback) {
+            finishTrackedFeedbackActivities(revision);
+        }
+    }
+
+    private boolean enabled(HookFeature feature) {
+        return featureSnapshot.get().isEnabled(feature);
+    }
+
+    private void initializeHostSettingsUi(ClassLoader classLoader) {
+        try {
+            hostSettingsUi = HostSettingsUi.resolve(
+                    classLoader,
+                    new HostSettingsUi.FeatureAccess() {
+                        @Override
+                        public boolean isEnabled(HookFeature feature) {
+                            return enabled(feature);
+                        }
+
+                        @Override
+                        public boolean writeFlags(
+                                Context context,
+                                Map<HookFeature, Boolean> flags
+                        ) {
+                            return writeFeatureFlags(context, flags);
+                        }
+                    },
+                    this::logMessage
+            );
+        } catch (Throwable t) {
+            hostSettingsUi = null;
+            logMessage("host settings UI resolution failed: " + t);
+        }
+    }
+
+    private boolean writeFeatureFlags(
+            Context context,
+            Map<HookFeature, Boolean> flags
+    ) {
+        if (context == null
+                || !TARGET_PACKAGE.equals(context.getPackageName())
+                || flags == null
+                || flags.isEmpty()) {
+            return false;
+        }
+        synchronized (featureWriteLock) {
+            return writeFeatureFlagsLocked(context, flags);
+        }
+    }
+
+    private boolean writeFeatureFlagsLocked(
+            Context context,
+            Map<HookFeature, Boolean> flags
+    ) {
+        try {
+            Bundle values = new Bundle();
+            for (Map.Entry<HookFeature, Boolean> entry : flags.entrySet()) {
+                HookFeature feature = entry.getKey();
+                Boolean value = entry.getValue();
+                if (feature == null || value == null) {
+                    return false;
+                }
+                values.putBoolean(feature.key(), value);
+            }
+            Bundle extras = new Bundle();
+            extras.putBundle(HookSettingsContract.EXTRA_FLAGS, values);
+            Bundle response = context.getContentResolver().call(
+                    HookSettingsContract.PROVIDER_URI,
+                    HookSettingsContract.METHOD_SET_FLAGS,
+                    null,
+                    extras
+            );
+            if (response == null
+                    || !response.getBoolean(HookSettingsContract.RESULT_OK, false)) {
+                String error = response == null
+                        ? "null_response"
+                        : response.getString(HookSettingsContract.RESULT_ERROR, "unknown");
+                logMessage("feature settings commit rejected: " + error);
+                return false;
+            }
+            long revision = response.getLong(HookSettingsContract.RESULT_REVISION, -1L);
+            if (revision < 1L) {
+                logMessage("feature settings commit returned invalid revision");
+                return false;
+            }
+            FeatureSnapshot acknowledged;
+            synchronized (featureSnapshotLock) {
+                acknowledged = featureSnapshot.get().withAcknowledgedChanges(flags, revision);
+            }
+            applyFeatureSnapshot(acknowledged);
+            return true;
+        } catch (Throwable t) {
+            logMessage("feature settings commit failed: " + t);
+            return false;
+        }
+    }
+
+    private boolean isSupportedHostVersion(
+            ClassLoader classLoader,
+            ApplicationInfo applicationInfo
+    ) {
+        try {
+            if (!hasExpectedHostManifest(applicationInfo)) {
+                return false;
+            }
+            Class<?> hostInfoClass = findClass(classLoader, "com.baidu.ad6");
+            Method getVersionName = findMethod(
+                    hostInfoClass,
+                    "getVersionName",
+                    String.class
+            );
+            Object hostInfo = hostInfoClass.getDeclaredConstructor().newInstance();
+            return HOST_VERSION_NAME.equals(getVersionName.invoke(hostInfo));
+        } catch (Throwable t) {
+            logMessage("host version gate failed: " + t);
+            return false;
+        }
+    }
+
+    private boolean hasExpectedHostManifest(ApplicationInfo applicationInfo) {
+        if (applicationInfo == null
+                || !TARGET_PACKAGE.equals(applicationInfo.packageName)
+                || applicationInfo.sourceDir == null) {
+            return false;
+        }
+        try (JarFile apk = new JarFile(applicationInfo.sourceDir, false)) {
+            JarEntry manifest = apk.getJarEntry("AndroidManifest.xml");
+            if (manifest == null) {
+                return false;
+            }
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            try (InputStream input = apk.getInputStream(manifest)) {
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    digest.update(buffer, 0, read);
+                }
+            }
+            return HOST_MANIFEST_SHA256.equals(toUpperHex(digest.digest()));
+        } catch (Throwable t) {
+            logMessage("host manifest gate failed: " + t);
+            return false;
+        }
+    }
+
+    private static String toUpperHex(byte[] value) {
+        char[] hex = "0123456789ABCDEF".toCharArray();
+        char[] result = new char[value.length * 2];
+        for (int i = 0; i < value.length; i++) {
+            int item = value[i] & 0xff;
+            result[i * 2] = hex[item >>> 4];
+            result[i * 2 + 1] = hex[item & 0x0f];
+        }
+        return new String(result);
     }
 
     private HookTargets findMatchingTargets(ClassLoader classLoader) {
@@ -75,7 +400,8 @@ public final class HookEntry extends XposedModule {
                 .setExceptionMode(ExceptionMode.PROTECTIVE)
                 .intercept(chain -> {
                     Object result = chain.proceed();
-                    if (shouldLiftClipCount(result)) {
+                    if (enabled(HookFeature.CLIPBOARD_CAPACITY)
+                            && shouldLiftClipCount(result)) {
                         return MAX_CLIP_COUNT;
                     }
                     return result;
@@ -85,18 +411,27 @@ public final class HookEntry extends XposedModule {
                 .setExceptionMode(ExceptionMode.PROTECTIVE)
                 .intercept(chain -> {
                     Object result = chain.proceed();
-                    enforceClipCountField(chain.getThisObject(), targets);
+                    if (enabled(HookFeature.CLIPBOARD_CAPACITY)) {
+                        enforceClipCountField(chain.getThisObject(), targets);
+                    }
                     return result;
                 }));
 
         safe(targets.profile.configClassName + ".e", () -> hook(targets.setClipCountMethod)
                 .setExceptionMode(ExceptionMode.PROTECTIVE)
                 .intercept(chain -> {
-                    Object count = chain.getArg(0);
-                    if (shouldLiftClipCount(count)) {
-                        return chain.proceed(new Object[] { MAX_CLIP_COUNT });
+                    Object result = chain.proceed();
+                    if (enabled(HookFeature.CLIPBOARD_CAPACITY)
+                            && shouldLiftClipCount(chain.getArg(0))) {
+                        // Keep the host setter's original argument so its
+                        // persistent key_clip_count value is never rewritten.
+                        try {
+                            targets.clipCountField.setInt(chain.getThisObject(), MAX_CLIP_COUNT);
+                        } catch (Throwable t) {
+                            logMessage("failed to lift in-memory clip count after setter: " + t);
+                        }
                     }
-                    return chain.proceed();
+                    return result;
                 }));
     }
 
@@ -105,7 +440,9 @@ public final class HookEntry extends XposedModule {
                 .setExceptionMode(ExceptionMode.PROTECTIVE)
                 .intercept(chain -> {
                     Object result = chain.proceed();
-                    updateCounterText(chain.getThisObject(), targets);
+                    if (enabled(HookFeature.CLIPBOARD_CAPACITY)) {
+                        updateCounterText(chain.getThisObject(), targets);
+                    }
                     return result;
                 }));
     }
@@ -115,7 +452,9 @@ public final class HookEntry extends XposedModule {
                 .setExceptionMode(ExceptionMode.PROTECTIVE)
                 .intercept(chain -> {
                     String input = (String) chain.getArg(0);
-                    if (input != null && input.length() > ORIGINAL_PASTE_TRUNCATE_LENGTH) {
+                    if (enabled(HookFeature.CLIPBOARD_LONG_TEXT)
+                            && input != null
+                            && input.length() > ORIGINAL_PASTE_TRUNCATE_LENGTH) {
                         return input;
                     }
                     return chain.proceed();
@@ -125,7 +464,2326 @@ public final class HookEntry extends XposedModule {
     private void hookRecordLengthFilter(final HookTargets targets) {
         safe(targets.profile.recordFilterClassName + ".q", () -> hook(targets.recordLengthFilterMethod)
                 .setExceptionMode(ExceptionMode.PROTECTIVE)
-                .intercept(chain -> null));
+                .intercept(chain -> enabled(HookFeature.CLIPBOARD_LONG_TEXT)
+                        ? null
+                        : chain.proceed()));
+    }
+
+    private void hookClipboardRecognition(ClassLoader classLoader) {
+        safe("clipboard semantic recognition", () -> {
+            Class<?> recognizerClass = findClass(
+                    classLoader,
+                    "com.baidu.input.ime.front.recognition.g"
+            );
+            Class<?> recognitionResultClass = findClass(classLoader, "com.baidu.f7d");
+            Method recognizeClipboardText = findMethod(
+                    recognizerClass,
+                    "d",
+                    recognitionResultClass,
+                    String.class
+            );
+
+            installConstantHook(
+                    recognizeClipboardText,
+                    HookFeature.CLIPBOARD_NO_RECOGNITION,
+                    null
+            );
+        });
+    }
+
+    private void hookCleanUi(ClassLoader classLoader) {
+        hookSettingsRootCleanup(classLoader);
+        hookCloudDictionarySettings(classLoader);
+        hookCloudBackupSubpage(classLoader);
+        hookCloudInputSetting(classLoader);
+        hookCloudInputCapability(classLoader);
+        hookToolboxMenuCleanup(classLoader);
+        hookToolboxClickGuard(classLoader);
+        hookLegacyToolboxClickGuard(classLoader);
+        hookSearchFunctionGuard(classLoader);
+        hookMechanicalKeyboardActivityGuard(classLoader);
+        hookIntentRecommendation(classLoader);
+        hookPureModeDialogCleanup(classLoader);
+        hookTurboModeWisdomCleanup(classLoader);
+        hookProgrammaticAdSetting(classLoader);
+        hookAdvancedRecommendationSettings(classLoader);
+        hookScenarioRecommendationCapability(classLoader);
+        hookSettingsSearchResults(classLoader);
+        hookMyCenterPage(classLoader);
+        hookMyCenterDynamicPage(classLoader);
+        hookShopTabs(classLoader);
+    }
+
+    private void hookSettingsRootCleanup(ClassLoader classLoader) {
+        safe("settings root cleanup", () -> {
+            Class<?> settingsFragmentClass = findClass(classLoader, "com.baidu.y6b");
+            Class<?> preferenceFragmentClass = findClass(classLoader, "com.baidu.pn0");
+            Class<?> androidXPreferenceFragmentClass = findClass(
+                    classLoader,
+                    "androidx.preference.d"
+            );
+            Class<?> preferenceClass = findClass(classLoader, "androidx.preference.Preference");
+            Method createPreferencesMethod = findMethod(
+                    settingsFragmentClass,
+                    "H",
+                    void.class,
+                    Bundle.class,
+                    String.class
+            );
+            Method removePreferenceMethod = findMethod(
+                    preferenceFragmentClass,
+                    "i0",
+                    void.class,
+                    String.class
+            );
+            Method findPreferenceMethod = findMethod(
+                    androidXPreferenceFragmentClass,
+                    "r",
+                    preferenceClass,
+                    CharSequence.class
+            );
+            Method setTitleResourceMethod = findMethod(
+                    preferenceClass,
+                    "m1",
+                    void.class,
+                    int.class
+            );
+            Method getSummaryMethod = findMethod(
+                    preferenceClass,
+                    "g0",
+                    CharSequence.class
+            );
+            Method setSummaryMethod = findMethod(
+                    preferenceClass,
+                    "k1",
+                    void.class,
+                    CharSequence.class
+            );
+
+            hook(createPreferencesMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        Object fragment = chain.getThisObject();
+                        if (enabled(HookFeature.FEEDBACK_BLOCK)) {
+                            removeHostPreference(
+                                    fragment,
+                                    SETTINGS_FEEDBACK_KEY,
+                                    removePreferenceMethod
+                            );
+                        }
+                        if (enabled(HookFeature.WISDOM_RECOMMENDATION)) {
+                            removeHostPreference(
+                                    fragment,
+                                    SETTINGS_INTENT_RECOMMEND_KEY,
+                                    removePreferenceMethod
+                            );
+                        }
+                        if (enabled(HookFeature.HIDE_SETTINGS_SKIN_ENTRY)) {
+                            removeHostPreference(
+                                    fragment,
+                                    SETTINGS_SKIN_KEY,
+                                    removePreferenceMethod
+                            );
+                        }
+                        if (enabled(HookFeature.CLOUD_BACKUP_SYNC)
+                                || enabled(HookFeature.CLOUD_OPTIMIZATION)
+                                || enabled(HookFeature.CLOUD_INPUT)) {
+                            updateSettingsRootLabels(
+                                    fragment,
+                                    findPreferenceMethod,
+                                    setTitleResourceMethod,
+                                    getSummaryMethod,
+                                    setSummaryMethod
+                            );
+                        }
+                        HostSettingsUi settingsUi = hostSettingsUi;
+                        if (settingsUi != null) {
+                            settingsUi.injectRootEntry(fragment);
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void hookModuleSettingsPage(ClassLoader classLoader) {
+        HostSettingsUi settingsUi = hostSettingsUi;
+        if (settingsUi == null) {
+            logMessage("module settings page hook skipped: UI targets unavailable");
+            return;
+        }
+        safe("module settings page", () -> {
+            Class<?> settingsPageClass = findClass(classLoader, "com.baidu.tkb");
+            Method createPreferencesMethod = findMethod(
+                    settingsPageClass,
+                    "H",
+                    void.class,
+                    Bundle.class,
+                    String.class
+            );
+            hook(createPreferencesMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        settingsUi.populateMarkedPage(chain.getThisObject());
+                        return result;
+                    });
+        });
+        Method categoryBindMethod = settingsUi.categoryBindMethod();
+        if (categoryBindMethod != null) {
+            safe("module settings compact category", () -> hook(categoryBindMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        settingsUi.compactBatchCategory(
+                                chain.getThisObject(),
+                                chain.getArg(0)
+                        );
+                        return result;
+                    }));
+        }
+    }
+
+    private void hookCloudDictionarySettings(ClassLoader classLoader) {
+        safe("cloud dictionary settings cleanup", () -> {
+            Class<?> dictionaryFragmentClass = findClass(classLoader, "com.baidu.ro1");
+            Class<?> preferenceFragmentClass = findClass(classLoader, "com.baidu.pn0");
+            Class<?> androidXPreferenceFragmentClass = findClass(
+                    classLoader,
+                    "androidx.preference.d"
+            );
+            Class<?> preferenceClass = findClass(classLoader, "androidx.preference.Preference");
+            Class<?> preferenceGroupClass = findClass(
+                    classLoader,
+                    "androidx.preference.PreferenceGroup"
+            );
+            Method createPreferencesMethod = findMethod(
+                    dictionaryFragmentClass,
+                    "H",
+                    void.class,
+                    Bundle.class,
+                    String.class
+            );
+            Method removePreferenceMethod = findMethod(
+                    preferenceFragmentClass,
+                    "i0",
+                    void.class,
+                    String.class
+            );
+            Method findPreferenceMethod = findMethod(
+                    androidXPreferenceFragmentClass,
+                    "r",
+                    preferenceClass,
+                    CharSequence.class
+            );
+            Method getParentMethod = findMethod(
+                    preferenceClass,
+                    "X",
+                    preferenceGroupClass
+            );
+            Method getChildCountMethod = findMethod(
+                    preferenceGroupClass,
+                    "z1",
+                    int.class
+            );
+            Method getChildMethod = findMethod(
+                    preferenceGroupClass,
+                    "y1",
+                    preferenceClass,
+                    int.class
+            );
+            Method removeChildMethod = findMethod(
+                    preferenceGroupClass,
+                    "D1",
+                    boolean.class,
+                    preferenceClass
+            );
+
+            hook(createPreferencesMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        Object fragment = chain.getThisObject();
+                        if (enabled(HookFeature.CLOUD_BACKUP_SYNC)) {
+                            removePreferenceOrOnlyCategory(
+                                    fragment,
+                                    CLOUD_BACKUP_KEY,
+                                    preferenceGroupClass,
+                                    findPreferenceMethod,
+                                    removePreferenceMethod,
+                                    getParentMethod,
+                                    getChildCountMethod,
+                                    getChildMethod,
+                                    removeChildMethod
+                            );
+                        }
+                        if (enabled(HookFeature.CLOUD_OPTIMIZATION)) {
+                            removeHostPreference(
+                                    fragment,
+                                    CLOUD_OPTIMIZATION_KEY,
+                                    removePreferenceMethod
+                            );
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void hookCloudBackupSubpage(ClassLoader classLoader) {
+        safe("cloud backup subpage cleanup", () -> {
+            Class<?> cloudFragmentClass = findClass(classLoader, "com.baidu.ss1");
+            Class<?> preferenceFragmentClass = findClass(classLoader, "com.baidu.pn0");
+            Method createPreferencesMethod = findMethod(
+                    cloudFragmentClass,
+                    "H",
+                    void.class,
+                    Bundle.class,
+                    String.class
+            );
+            Method removePreferenceMethod = findMethod(
+                    preferenceFragmentClass,
+                    "i0",
+                    void.class,
+                    String.class
+            );
+
+            hook(createPreferencesMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        Object fragment = chain.getThisObject();
+                        if (enabled(HookFeature.CLOUD_BACKUP_SYNC)) {
+                            removeHostPreference(
+                                    fragment,
+                                    CLOUD_USER_CIKU_ROOT_KEY,
+                                    removePreferenceMethod
+                            );
+                            removeHostPreference(
+                                    fragment,
+                                    CLOUD_BACKUP_SETTINGS_ROOT_KEY,
+                                    removePreferenceMethod
+                            );
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void hookCloudInputSetting(ClassLoader classLoader) {
+        safe("cloud input setting cleanup", () -> {
+            Class<?> generalFragmentClass = findClass(classLoader, "com.baidu.kk4");
+            Class<?> androidXPreferenceFragmentClass = findClass(
+                    classLoader,
+                    "androidx.preference.d"
+            );
+            Class<?> preferenceClass = findClass(classLoader, "androidx.preference.Preference");
+            Class<?> cloudInputPreferenceClass = findClass(
+                    classLoader,
+                    "com.baidu.input.pref.OppoYunshuruPref"
+            );
+            Method createPreferencesMethod = findMethod(
+                    generalFragmentClass,
+                    "H",
+                    void.class,
+                    Bundle.class,
+                    String.class
+            );
+            Method findPreferenceMethod = findMethod(
+                    androidXPreferenceFragmentClass,
+                    "r",
+                    preferenceClass,
+                    CharSequence.class
+            );
+            Field visibleField = findField(preferenceClass, "y", boolean.class);
+            Method notifyHierarchyChangedMethod = findMethod(
+                    preferenceClass,
+                    "u0",
+                    void.class
+            );
+
+            hook(createPreferencesMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (enabled(HookFeature.CLOUD_INPUT)) {
+                            hideCloudInputPreference(
+                                    chain.getThisObject(),
+                                    cloudInputPreferenceClass,
+                                    findPreferenceMethod,
+                                    visibleField,
+                                    notifyHierarchyChangedMethod
+                            );
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void hookCloudInputCapability(ClassLoader classLoader) {
+        safe("cloud input capability", () -> {
+            Class<?> cloudInputConfigClass = findClass(classLoader, "com.baidu.ps1");
+            Method isCloudInputEnabled = findMethod(
+                    cloudInputConfigClass,
+                    "j",
+                    boolean.class
+            );
+
+            installConstantHook(isCloudInputEnabled, HookFeature.CLOUD_INPUT, false);
+        });
+    }
+
+    private void hookToolboxMenuCleanup(ClassLoader classLoader) {
+        safe("toolbox menu cleanup", () -> {
+            Class<?> menuPagerClass = findClass(classLoader, "com.baidu.m6e");
+            Class<?> menuItemClass = findClass(classLoader, "com.baidu.sq5");
+            Class<?> menuFunctionClass = findClass(
+                    classLoader,
+                    "com.baidu.input.menutoolapi.data.MenuFunction"
+            );
+            Class<?> callbackClass = findClass(classLoader, "com.baidu.zf4");
+            Method buildMenuMethod = findMethod(
+                    menuPagerClass,
+                    "b",
+                    View.class,
+                    List.class,
+                    boolean.class,
+                    callbackClass
+            );
+            Method getMenuFunctionMethod = findMethod(
+                    menuItemClass,
+                    "d",
+                    menuFunctionClass
+            );
+
+            hook(buildMenuMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (!hasToolboxFeatureEnabled()) {
+                            return chain.proceed();
+                        }
+                        List<Object> filtered = filterToolboxItems(
+                                chain.getArg(0),
+                                getMenuFunctionMethod
+                        );
+                        if (filtered == null) {
+                            return chain.proceed();
+                        }
+                        return chain.proceed(new Object[] {
+                                filtered,
+                                chain.getArg(1),
+                                chain.getArg(2)
+                        });
+                    });
+        });
+    }
+
+    private void hookProgrammaticAdSetting(ClassLoader classLoader) {
+        safe("programmatic ad setting cleanup", () -> {
+            Class<?> privacyFragmentClass = findClass(classLoader, "com.baidu.j55");
+            Class<?> preferenceFragmentClass = findClass(classLoader, "com.baidu.pn0");
+            Method createPreferencesMethod = findMethod(
+                    privacyFragmentClass,
+                    "H",
+                    void.class,
+                    Bundle.class,
+                    String.class
+            );
+            Method removePreferenceMethod = findMethod(
+                    preferenceFragmentClass,
+                    "i0",
+                    void.class,
+                    String.class
+            );
+
+            hook(createPreferencesMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (enabled(HookFeature.AD_SDK_BLOCK)) {
+                            removeHostPreference(
+                                    chain.getThisObject(),
+                                    PROGRAMMATIC_AD_KEY,
+                                    removePreferenceMethod
+                            );
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void hookToolboxClickGuard(ClassLoader classLoader) {
+        safe("toolbox click guard", () -> {
+            Class<?> menuClickListenerClass = findClass(classLoader, "com.baidu.ug8");
+            Class<?> menuItemClass = findClass(classLoader, "com.baidu.sq5");
+            Class<?> menuFunctionClass = findClass(
+                    classLoader,
+                    "com.baidu.input.menutoolapi.data.MenuFunction"
+            );
+            Method handleMenuClick = findMethod(
+                    menuClickListenerClass,
+                    "a",
+                    void.class,
+                    menuItemClass,
+                    boolean.class
+            );
+            Method getMenuFunctionMethod = findMethod(
+                    menuItemClass,
+                    "d",
+                    menuFunctionClass
+            );
+
+            hook(handleMenuClick)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (!hasToolboxFeatureEnabled()) {
+                            return chain.proceed();
+                        }
+                        return shouldBlockToolboxClick(
+                                chain.getArg(0),
+                                getMenuFunctionMethod
+                        ) ? null : chain.proceed();
+                    });
+        });
+    }
+
+    private void hookLegacyToolboxClickGuard(ClassLoader classLoader) {
+        safe("legacy toolbox click guard", () -> {
+            Class<?> legacyMenuItemClass = findClass(classLoader, "com.baidu.zf8");
+            Class<?> menuFunctionClass = findClass(
+                    classLoader,
+                    "com.baidu.input.menutoolapi.data.MenuFunction"
+            );
+            Method handleMenuClick = findMethod(
+                    legacyMenuItemClass,
+                    "g",
+                    void.class
+            );
+            Method getMenuFunctionMethod = findMethod(
+                    legacyMenuItemClass,
+                    "d",
+                    menuFunctionClass
+            );
+
+            hook(handleMenuClick)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (!hasToolboxFeatureEnabled()) {
+                            return chain.proceed();
+                        }
+                        return shouldBlockToolboxClick(
+                                chain.getThisObject(),
+                                getMenuFunctionMethod
+                        ) ? null : chain.proceed();
+                    });
+        });
+    }
+
+    private void hookSearchFunctionGuard(ClassLoader classLoader) {
+        safe("search function opcode guard", () -> {
+            Class<?> inputEventHandlerClass = findClass(classLoader, "com.baidu.ry6");
+            Method handleFunction = findMethod(
+                    inputEventHandlerClass,
+                    "l1",
+                    boolean.class,
+                    int.class
+            );
+
+            hook(handleFunction)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (!enabled(HookFeature.HIDE_SEARCH)) {
+                            return chain.proceed();
+                        }
+                        Object opcode = chain.getArg(0);
+                        if (opcode instanceof Integer
+                                && (Integer) opcode == SEARCH_FUNCTION_OPCODE) {
+                            return true;
+                        }
+                        return chain.proceed();
+                    });
+        });
+    }
+
+    private void hookMechanicalKeyboardActivityGuard(ClassLoader classLoader) {
+        safe("mechanical keyboard activity restore guard", () -> {
+            Class<?> mechanicalKeyboardActivityClass = findClass(
+                    classLoader,
+                    "com.baidu.input.simulation.MechanicalKeyboardActivity"
+            );
+            Method createActivity = findMethod(
+                    mechanicalKeyboardActivityClass,
+                    "onCreate",
+                    void.class,
+                    Bundle.class
+            );
+
+            hook(createActivity)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (enabled(HookFeature.HIDE_MECHANICAL_KEYBOARD)) {
+                            ((Activity) chain.getThisObject()).finish();
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void hookIntentRecommendation(ClassLoader classLoader) {
+        safe("wisdom recommendation capability", () -> {
+            Class<?> cloudIntentManagerClass = findClass(
+                    classLoader,
+                    "com.baidu.input.ime.intent.CloudIntentManager"
+            );
+            Method isRecommendationEnabled = findMethod(
+                    cloudIntentManagerClass,
+                    "t",
+                    boolean.class
+            );
+
+            installConstantHook(
+                    isRecommendationEnabled,
+                    HookFeature.WISDOM_RECOMMENDATION,
+                    false
+            );
+        });
+
+        safe("wisdom recommendation activity restore guard", () -> {
+            Class<?> recommendationActivityClass = findClass(
+                    classLoader,
+                    "com.baidu.input.ImeCloudIntentRecommendActivity"
+            );
+            Method createActivity = findMethod(
+                    recommendationActivityClass,
+                    "onCreate",
+                    void.class,
+                    Bundle.class
+            );
+
+            hook(createActivity)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (enabled(HookFeature.WISDOM_RECOMMENDATION)) {
+                            ((Activity) chain.getThisObject()).finish();
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void hookPureModeDialogCleanup(ClassLoader classLoader) {
+        safe("pure-mode wisdom item cleanup", () -> {
+            Class<?> functionAdapterClass = findClass(classLoader, "com.baidu.dh4");
+            Class<?> functionItemClass = findClass(classLoader, "com.baidu.fh4");
+            Constructor<?> functionAdapterConstructor = findConstructor(
+                    functionAdapterClass,
+                    Context.class,
+                    List.class
+            );
+            Method getTextResource = findMethod(functionItemClass, "b", int.class);
+
+            hook(functionAdapterConstructor)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (!enabled(HookFeature.WISDOM_RECOMMENDATION)) {
+                            return chain.proceed();
+                        }
+                        List<Object> filtered = filterPureModeFunctionItems(
+                                chain.getArg(1),
+                                functionItemClass,
+                                getTextResource
+                        );
+                        if (filtered == null) {
+                            return chain.proceed();
+                        }
+                        return chain.proceed(new Object[] { chain.getArg(0), filtered });
+                    });
+        });
+    }
+
+    private void hookTurboModeWisdomCleanup(ClassLoader classLoader) {
+        safe("turbo-mode wisdom row cleanup", () -> {
+            Class<?> turboDialogClass = findClass(classLoader, "com.baidu.frd");
+            Class<?> aspectJoinPointClass = findClass(classLoader, "com.baidu.md7");
+            Method inflateGuideLayout = findMethod(
+                    turboDialogClass,
+                    "i",
+                    View.class,
+                    LayoutInflater.class,
+                    int.class,
+                    ViewGroup.class,
+                    aspectJoinPointClass
+            );
+
+            hook(inflateGuideLayout)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (!enabled(HookFeature.WISDOM_RECOMMENDATION)) {
+                            return result;
+                        }
+                        Object layout = chain.getArg(1);
+                        if (result instanceof View
+                                && layout instanceof Integer
+                                && (Integer) layout == TURBO_MODE_GUIDE_LAYOUT_RES_ID) {
+                            hideTurboModeWisdomRow((View) result);
+                        }
+                        return result;
+                    });
+        });
+
+        safe("turbo-mode wisdom settings cleanup", () -> {
+            Class<?> turboSettingsAdapterClass = findClass(classLoader, "com.baidu.c5e");
+            Constructor<?> turboSettingsAdapterConstructor = findConstructor(
+                    turboSettingsAdapterClass,
+                    Context.class,
+                    ArrayList.class
+            );
+
+            hook(turboSettingsAdapterConstructor)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (!enabled(HookFeature.WISDOM_RECOMMENDATION)) {
+                            return chain.proceed();
+                        }
+                        ArrayList<Object> filtered = filterTurboModeFunctions(chain.getArg(1));
+                        if (filtered == null) {
+                            return chain.proceed();
+                        }
+                        return chain.proceed(new Object[] { chain.getArg(0), filtered });
+                    });
+        });
+    }
+
+    private void hookAdvancedRecommendationSettings(ClassLoader classLoader) {
+        safe("advanced recommendation settings cleanup", () -> {
+            Class<?> advancedFragmentClass = findClass(classLoader, "com.baidu.xv");
+            Class<?> preferenceFragmentClass = findClass(classLoader, "com.baidu.pn0");
+            Method createPreferencesMethod = findMethod(
+                    advancedFragmentClass,
+                    "H",
+                    void.class,
+                    Bundle.class,
+                    String.class
+            );
+            Method removePreferenceMethod = findMethod(
+                    preferenceFragmentClass,
+                    "i0",
+                    void.class,
+                    String.class
+            );
+
+            hook(createPreferencesMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (!enabled(HookFeature.SCENARIO_RECOMMENDATION)
+                                && !enabled(HookFeature.ACTIVITY_RECOMMENDATION)) {
+                            return result;
+                        }
+                        Object fragment = chain.getThisObject();
+                        if (enabled(HookFeature.SCENARIO_RECOMMENDATION)) {
+                            removeHostPreference(fragment, UNIQUE_RESULT_KEY, removePreferenceMethod);
+                        }
+                        if (enabled(HookFeature.ACTIVITY_RECOMMENDATION)) {
+                            removeHostPreference(
+                                    fragment,
+                                    ACTIVITY_RECOMMENDATION_KEY,
+                                    removePreferenceMethod
+                            );
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void hookScenarioRecommendationCapability(ClassLoader classLoader) {
+        safe("scenario recommendation results", () -> {
+            Class<?> cloudResultClass = findClass(
+                    classLoader,
+                    "com.baidu.input.ime.cloudinput.CloudOutputService"
+            );
+            Class<?> cloudResultArrayClass = Array.newInstance(cloudResultClass, 0).getClass();
+            Class<?> suggestionEventClass = findClass(
+                    classLoader,
+                    "com.baidu.input.ime.searchservice.bean.SuggestEventBean"
+            );
+            Field resultTypeField = findField(cloudResultClass, "type", int.class);
+            Constructor<?> suggestionEventConstructor = findConstructor(
+                    suggestionEventClass,
+                    int.class,
+                    cloudResultArrayClass,
+                    boolean.class
+            );
+
+            hook(suggestionEventConstructor)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (!enabled(HookFeature.SCENARIO_RECOMMENDATION)) {
+                            return chain.proceed();
+                        }
+                        Object filtered = filterScenarioRecommendationResults(
+                                chain.getArg(1),
+                                cloudResultClass,
+                                resultTypeField
+                        );
+                        if (filtered == null) {
+                            return chain.proceed();
+                        }
+                        return chain.proceed(new Object[] {
+                                chain.getArg(0),
+                                filtered,
+                                chain.getArg(2)
+                        });
+                    });
+        });
+
+        safe("scenario recommendation cards", () -> {
+            Class<?> scenarioCardClass = findClass(classLoader, "com.baidu.vm6");
+            Class<?> runtimeStateClass = findClass(classLoader, "com.baidu.pc6");
+            Field commercePackagesField = findField(
+                    scenarioCardClass,
+                    "a",
+                    Collection.class
+            );
+            Field appStorePackagesField = findField(
+                    scenarioCardClass,
+                    "b",
+                    Collection.class
+            );
+            Method getCurrentInputPackage = findMethod(
+                    runtimeStateClass,
+                    "d",
+                    String.class
+            );
+            Method canShowScenarioCard = findMethod(
+                    scenarioCardClass,
+                    "a",
+                    boolean.class
+            );
+
+            hook(canShowScenarioCard)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (!enabled(HookFeature.SCENARIO_RECOMMENDATION)) {
+                            return result;
+                        }
+                        if (!Boolean.TRUE.equals(result)) {
+                            return result;
+                        }
+                        try {
+                            String packageName = (String) getCurrentInputPackage.invoke(null);
+                            Collection<?> commercePackages =
+                                    (Collection<?>) commercePackagesField.get(null);
+                            Collection<?> appStorePackages =
+                                    (Collection<?>) appStorePackagesField.get(null);
+                            if (commercePackages.contains(packageName)
+                                    || appStorePackages.contains(packageName)) {
+                                return false;
+                            }
+                        } catch (Throwable t) {
+                            logMessage("failed to inspect scenario card package: " + t);
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void hookSettingsSearchResults(ClassLoader classLoader) {
+        safe("settings search result cleanup", () -> {
+            Class<?> searchActivityClass = findClass(
+                    classLoader,
+                    "com.baidu.input.ImeSettingsSearchActivity"
+            );
+            Class<?> searchItemClass = findClass(classLoader, "com.baidu.ulb");
+            Class<?> preferenceClass = findClass(classLoader, "android.preference.Preference");
+            Class<?> preferenceGroupClass = findClass(
+                    classLoader,
+                    "android.preference.PreferenceGroup"
+            );
+            Class<?> preferenceScreenClass = findClass(
+                    classLoader,
+                    "android.preference.PreferenceScreen"
+            );
+            Method populateResultsMethod = findMethod(
+                    searchActivityClass,
+                    "d",
+                    void.class,
+                    String.class
+            );
+            Method removePreferenceMethod = findMethod(
+                    preferenceGroupClass,
+                    "removePreference",
+                    boolean.class,
+                    preferenceClass
+            );
+            Field preferenceScreenField = findField(
+                    searchActivityClass,
+                    "b",
+                    preferenceScreenClass
+            );
+            Field resultMapField = findField(searchActivityClass, "d", HashMap.class);
+            Field searchKeyField = findField(searchItemClass, "f", String.class);
+            Field searchPageTypeField = findField(searchItemClass, "q", int.class);
+            Field searchParentPathField = findField(searchItemClass, "u", String.class);
+
+            hook(populateResultsMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (!hasSettingsSearchFeatureEnabled()) {
+                            return result;
+                        }
+                        removeBlockedSettingsSearchResults(
+                                chain.getThisObject(),
+                                searchItemClass,
+                                preferenceClass,
+                                preferenceScreenField,
+                                resultMapField,
+                                searchKeyField,
+                                searchPageTypeField,
+                                searchParentPathField,
+                                removePreferenceMethod
+                        );
+                        return result;
+                    });
+        });
+    }
+
+    private void hookShopStartup(ClassLoader classLoader) {
+        safe("shop no-ads startup", () -> {
+            Class<?> shopActivityClass = findClass(
+                    classLoader,
+                    "com.baidu.input.shop.ui.home.ImeShopMainActivity"
+            );
+            Method noAdsMethod = findMethod(shopActivityClass, "z", boolean.class);
+
+            installConstantHook(noAdsMethod, HookFeature.AD_SDK_BLOCK, true);
+        });
+    }
+
+    private void removeHostPreference(Object fragment, String key, Method removePreferenceMethod) {
+        if (fragment == null) {
+            return;
+        }
+        try {
+            removePreferenceMethod.invoke(fragment, key);
+        } catch (Throwable t) {
+            logMessage("failed to remove preference " + key + ": " + t);
+        }
+    }
+
+    private List<Object> filterToolboxItems(Object menuItems, Method getMenuFunctionMethod) {
+        if (!(menuItems instanceof List<?>)) {
+            return null;
+        }
+
+        try {
+            List<?> source = (List<?>) menuItems;
+            ArrayList<Object> filtered = new ArrayList<>(source.size());
+            boolean removed = false;
+            for (Object item : source) {
+                Object menuFunction = item == null ? null : getMenuFunctionMethod.invoke(item);
+                if (isBlockedToolboxFunction(menuFunction)) {
+                    removed = true;
+                    continue;
+                }
+                filtered.add(item);
+            }
+            return removed ? filtered : null;
+        } catch (Throwable t) {
+            logMessage("failed to filter toolbox items: " + t);
+            return null;
+        }
+    }
+
+    private boolean hasToolboxFeatureEnabled() {
+        return enabled(HookFeature.HIDE_SEARCH)
+                || enabled(HookFeature.HIDE_MECHANICAL_KEYBOARD)
+                || enabled(HookFeature.HIDE_FONT_SETTING)
+                || enabled(HookFeature.CLOUD_BACKUP_SYNC)
+                || enabled(HookFeature.FEEDBACK_BLOCK)
+                || enabled(HookFeature.WISDOM_RECOMMENDATION);
+    }
+
+    private boolean isBlockedToolboxFunction(Object menuFunction) {
+        if (!(menuFunction instanceof Enum<?>)) {
+            return false;
+        }
+        HookFeature feature = toolboxFeature(((Enum<?>) menuFunction).name());
+        return feature != null && enabled(feature);
+    }
+
+    private static HookFeature toolboxFeature(String name) {
+        if (TOOLBOX_SEARCH.equals(name)) {
+            return HookFeature.HIDE_SEARCH;
+        }
+        if (TOOLBOX_MECHANICAL_KEYBOARD.equals(name)) {
+            return HookFeature.HIDE_MECHANICAL_KEYBOARD;
+        }
+        if (TOOLBOX_FONT_SETTING.equals(name)) {
+            return HookFeature.HIDE_FONT_SETTING;
+        }
+        if (TOOLBOX_CLOUD_SYNC.equals(name)) {
+            return HookFeature.CLOUD_BACKUP_SYNC;
+        }
+        if (TOOLBOX_FEEDBACK.equals(name)) {
+            return HookFeature.FEEDBACK_BLOCK;
+        }
+        if (TOOLBOX_INTENT_RECOMMEND.equals(name)) {
+            return HookFeature.WISDOM_RECOMMENDATION;
+        }
+        return null;
+    }
+
+    private List<Object> filterPureModeFunctionItems(
+            Object functionItems,
+            Class<?> functionItemClass,
+            Method getTextResource
+    ) {
+        if (!(functionItems instanceof List<?>)) {
+            return null;
+        }
+
+        try {
+            List<?> source = (List<?>) functionItems;
+            ArrayList<Object> filtered = new ArrayList<>(source.size());
+            for (Object item : source) {
+                if (functionItemClass.isInstance(item)
+                        && Integer.valueOf(INTENT_RECOMMEND_TITLE_RES_ID).equals(
+                        getTextResource.invoke(item))) {
+                    continue;
+                }
+                filtered.add(item);
+            }
+            return filtered;
+        } catch (Throwable t) {
+            logMessage("failed to filter pure-mode function items: " + t);
+            return null;
+        }
+    }
+
+    private static void hideTurboModeWisdomRow(View root) {
+        View icon = root.findViewById(VIEW_ID_TURBO_CLOUD_INTENT_ICON);
+        View toggle = root.findViewById(VIEW_ID_TURBO_CLOUD_INTENT_SWITCH);
+        if (icon == null || toggle == null) {
+            return;
+        }
+
+        Object row = icon.getParent();
+        if (row instanceof View && row == toggle.getParent()) {
+            ((View) row).setVisibility(View.GONE);
+        }
+    }
+
+    private ArrayList<Object> filterTurboModeFunctions(Object functionItems) {
+        if (!(functionItems instanceof ArrayList<?>)) {
+            return null;
+        }
+
+        ArrayList<?> source = (ArrayList<?>) functionItems;
+        ArrayList<Object> filtered = new ArrayList<>(source.size());
+        int removed = 0;
+        for (Object item : source) {
+            if (item instanceof Enum<?>
+                    && TURBO_CLOUD_INTENT_FUNCTION.equals(((Enum<?>) item).name())) {
+                removed++;
+                continue;
+            }
+            filtered.add(item);
+        }
+        return removed == 1 ? filtered : null;
+    }
+
+    private Object filterScenarioRecommendationResults(
+            Object results,
+            Class<?> resultClass,
+            Field resultTypeField
+    ) {
+        if (results == null) {
+            return null;
+        }
+        if (!results.getClass().isArray()) {
+            return Array.newInstance(resultClass, 0);
+        }
+
+        try {
+            int length = Array.getLength(results);
+            ArrayList<Object> filtered = new ArrayList<>(length);
+            boolean removed = false;
+            for (int i = 0; i < length; i++) {
+                Object result = Array.get(results, i);
+                if (result != null && !resultClass.isInstance(result)) {
+                    return Array.newInstance(resultClass, 0);
+                }
+                if (result != null
+                        && resultTypeField.getInt(result) == UNIQUE_RESULT_SERVICE_TYPE) {
+                    removed = true;
+                    continue;
+                }
+                filtered.add(result);
+            }
+            if (!removed) {
+                return results;
+            }
+
+            Object filteredArray = Array.newInstance(resultClass, filtered.size());
+            for (int i = 0; i < filtered.size(); i++) {
+                Array.set(filteredArray, i, filtered.get(i));
+            }
+            return filteredArray;
+        } catch (Throwable t) {
+            logMessage("failed to filter scenario recommendation results: " + t);
+            return Array.newInstance(resultClass, 0);
+        }
+    }
+
+    private boolean shouldBlockToolboxClick(Object menuItem, Method getMenuFunctionMethod) {
+        if (menuItem == null) {
+            return false;
+        }
+        try {
+            return isBlockedToolboxFunction(getMenuFunctionMethod.invoke(menuItem));
+        } catch (Throwable t) {
+            logMessage("failed to inspect toolbox click: " + t);
+            return false;
+        }
+    }
+
+    private void removeBlockedSettingsSearchResults(
+            Object activity,
+            Class<?> searchItemClass,
+            Class<?> preferenceClass,
+            Field preferenceScreenField,
+            Field resultMapField,
+            Field searchKeyField,
+            Field searchPageTypeField,
+            Field searchParentPathField,
+            Method removePreferenceMethod
+    ) {
+        if (activity == null) {
+            return;
+        }
+
+        try {
+            Object preferenceScreen = preferenceScreenField.get(activity);
+            Object value = resultMapField.get(activity);
+            if (preferenceScreen == null || !(value instanceof Map<?, ?>)) {
+                return;
+            }
+
+            Iterator<? extends Map.Entry<?, ?>> iterator =
+                    ((Map<?, ?>) value).entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<?, ?> entry = iterator.next();
+                Object searchItem = entry.getValue();
+                if (!searchItemClass.isInstance(searchItem)) {
+                    continue;
+                }
+                String key = (String) searchKeyField.get(searchItem);
+                int pageType = searchPageTypeField.getInt(searchItem);
+                String parentPath = (String) searchParentPathField.get(searchItem);
+                if (!isBlockedSettingsSearchTarget(key, pageType, parentPath)) {
+                    continue;
+                }
+
+                Object preference = entry.getKey();
+                if (preferenceClass.isInstance(preference)) {
+                    removePreferenceMethod.invoke(preferenceScreen, preference);
+                }
+                iterator.remove();
+            }
+        } catch (Throwable t) {
+            logMessage("failed to filter settings search results: " + t);
+        }
+    }
+
+    private boolean hasSettingsSearchFeatureEnabled() {
+        return enabled(HookFeature.CLOUD_BACKUP_SYNC)
+                || enabled(HookFeature.CLOUD_OPTIMIZATION)
+                || enabled(HookFeature.CLOUD_INPUT)
+                || enabled(HookFeature.FEEDBACK_BLOCK)
+                || enabled(HookFeature.AD_SDK_BLOCK)
+                || enabled(HookFeature.SCENARIO_RECOMMENDATION)
+                || enabled(HookFeature.ACTIVITY_RECOMMENDATION)
+                || enabled(HookFeature.WISDOM_RECOMMENDATION);
+    }
+
+    private boolean isBlockedSettingsSearchTarget(
+            String key,
+            int pageType,
+            String parentPath
+    ) {
+        if ((pageType == CLOUD_BACKUP_PAGE_TYPE
+                || isCloudBackupSearchPath(parentPath)
+                || CLOUD_BACKUP_KEY.equals(key))
+                && enabled(HookFeature.CLOUD_BACKUP_SYNC)) {
+            return true;
+        }
+        if (CLOUD_OPTIMIZATION_KEY.equals(key)) {
+            return enabled(HookFeature.CLOUD_OPTIMIZATION);
+        }
+        if (CLOUD_INPUT_KEY.equals(key)) {
+            return enabled(HookFeature.CLOUD_INPUT);
+        }
+        if (SETTINGS_FEEDBACK_KEY.equals(key)) {
+            return enabled(HookFeature.FEEDBACK_BLOCK);
+        }
+        if (PROGRAMMATIC_AD_KEY.equals(key)) {
+            return enabled(HookFeature.AD_SDK_BLOCK);
+        }
+        if (UNIQUE_RESULT_KEY.equals(key)) {
+            return enabled(HookFeature.SCENARIO_RECOMMENDATION);
+        }
+        if (ACTIVITY_RECOMMENDATION_KEY.equals(key)) {
+            return enabled(HookFeature.ACTIVITY_RECOMMENDATION);
+        }
+        if (SETTINGS_INTENT_RECOMMEND_KEY.equals(key)) {
+            return enabled(HookFeature.WISDOM_RECOMMENDATION);
+        }
+        return false;
+    }
+
+    private static boolean isCloudBackupSearchPath(String parentPath) {
+        if (parentPath == null) {
+            return false;
+        }
+        int separator = parentPath.indexOf(';');
+        String rootKey = separator < 0 ? parentPath : parentPath.substring(0, separator);
+        return CLOUD_BACKUP_KEY.equals(rootKey);
+    }
+
+    private void hookBlockedSettingsRoutes(ClassLoader classLoader) {
+        safe("blocked settings routes", () -> {
+            Class<?> menuRouterClass = findClass(classLoader, "com.baidu.h77");
+            Class<?> backupPreferenceClass = findClass(
+                    classLoader,
+                    "com.baidu.input.pref.SettingsBackupPref"
+            );
+            Class<?> recoveryPreferenceClass = findClass(
+                    classLoader,
+                    "com.baidu.input.pref.SettingsRecoveryPref"
+            );
+            Field pendingBackupField = findField(backupPreferenceClass, "g1", boolean.class);
+            Field pendingRecoveryField = findField(
+                    recoveryPreferenceClass,
+                    "f1",
+                    boolean.class
+            );
+            Method openMenuRoute = findMethod(
+                    menuRouterClass,
+                    "z",
+                    boolean.class,
+                    Context.class,
+                    byte.class,
+                    String.class,
+                    Bundle.class
+            );
+
+            hook(openMenuRoute)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object route = chain.getArg(1);
+                        if (route instanceof Byte
+                                && (Byte) route == FONT_SETTING_ROUTE
+                                && (enabled(HookFeature.HIDE_FONT_SETTING)
+                                || enabled(HookFeature.FONT_SHOP_CLEANUP))) {
+                            return true;
+                        }
+                        HookFeature feature = blockedSettingsRouteFeature(route);
+                        if (feature == null || !enabled(feature)) {
+                            return chain.proceed();
+                        }
+                        if (route instanceof Byte && (Byte) route == CLOUD_BACKUP_ROUTE) {
+                            clearPendingCloudActions(pendingBackupField, pendingRecoveryField);
+                        }
+                        return true;
+                    });
+        });
+
+        safe("cloud backup activity restore guard", () -> {
+            Class<?> cloudActivityClass = findClass(
+                    classLoader,
+                    "com.baidu.input.ImeSubConfigActivity"
+            );
+            Class<?> backupPreferenceClass = findClass(
+                    classLoader,
+                    "com.baidu.input.pref.SettingsBackupPref"
+            );
+            Class<?> recoveryPreferenceClass = findClass(
+                    classLoader,
+                    "com.baidu.input.pref.SettingsRecoveryPref"
+            );
+            Field pendingBackupField = findField(backupPreferenceClass, "g1", boolean.class);
+            Field pendingRecoveryField = findField(
+                    recoveryPreferenceClass,
+                    "f1",
+                    boolean.class
+            );
+            Field pageTypeField = findField(cloudActivityClass, "s", byte.class);
+            Method createActivity = findMethod(
+                    cloudActivityClass,
+                    "onCreate",
+                    void.class,
+                    Bundle.class
+            );
+            Method startActivity = findMethod(cloudActivityClass, "onStart", void.class);
+
+            hook(createActivity)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Activity activity = (Activity) chain.getThisObject();
+                        boolean blocked = enabled(HookFeature.CLOUD_BACKUP_SYNC)
+                                && isCloudBackupActivity(activity);
+                        if (blocked) {
+                            clearPendingCloudActions(
+                                    pendingBackupField,
+                                    pendingRecoveryField
+                            );
+                        }
+                        Object result = chain.proceed();
+                        if (blocked) {
+                            activity.finish();
+                        }
+                        return result;
+                    });
+
+            hook(startActivity)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        Object activity = chain.getThisObject();
+                        if (enabled(HookFeature.CLOUD_BACKUP_SYNC)
+                                && activity instanceof Activity
+                                && pageTypeField.getByte(activity) == CLOUD_BACKUP_PAGE_TYPE) {
+                            clearPendingCloudActions(
+                                    pendingBackupField,
+                                    pendingRecoveryField
+                            );
+                            ((Activity) activity).finish();
+                        }
+                        return result;
+                    });
+        });
+
+        safe("feedback web entry", () -> {
+            Class<?> feedbackEntryClass = findClass(classLoader, "com.baidu.sz3");
+            Method openFeedback = findMethod(
+                    feedbackEntryClass,
+                    "d",
+                    void.class,
+                    Context.class
+            );
+
+            installConstantHook(openFeedback, HookFeature.FEEDBACK_BLOCK, null);
+        });
+
+        safe("feedback activity restore guard", () -> {
+            Class<?> feedbackActivityClass = findClass(
+                    classLoader,
+                    "com.baidu.input.feedback.customizer.impl.FeedbackOPPOH5Activity"
+            );
+            Method createActivity = findMethod(
+                    feedbackActivityClass,
+                    "onCreate",
+                    void.class,
+                    Bundle.class
+            );
+
+            hook(createActivity)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Activity activity = (Activity) chain.getThisObject();
+                        feedbackActivities.add(activity);
+                        if (!enabled(HookFeature.FEEDBACK_BLOCK)) {
+                            return chain.proceed();
+                        }
+                        Intent intent = activity.getIntent();
+                        if (intent == null) {
+                            intent = new Intent();
+                            activity.setIntent(intent);
+                        }
+                        intent.putExtra(FEEDBACK_URL_EXTRA, BLANK_WEB_URL);
+                        Object result = chain.proceed();
+                        activity.finish();
+                        return result;
+                    });
+        });
+    }
+
+    private void finishTrackedFeedbackActivities(long revision) {
+        Handler handler = new Handler(Looper.getMainLooper());
+        if (!handler.post(() -> {
+            FeatureSnapshot current = featureSnapshot.get();
+            if (!current.isSchemaValid()
+                    || current.revision() < revision
+                    || !current.isEnabled(HookFeature.FEEDBACK_BLOCK)) {
+                return;
+            }
+            ArrayList<Activity> tracked;
+            synchronized (feedbackActivities) {
+                tracked = new ArrayList<>(feedbackActivities);
+            }
+            for (Activity activity : tracked) {
+                if (activity != null && !activity.isFinishing() && !activity.isDestroyed()) {
+                    activity.finish();
+                }
+            }
+        })) {
+            logMessage("failed to schedule feedback activity cleanup");
+        }
+    }
+
+    private static HookFeature blockedSettingsRouteFeature(Object route) {
+        if (!(route instanceof Byte)) {
+            return null;
+        }
+        byte value = (Byte) route;
+        if (value == CLOUD_OPTIMIZATION_ROUTE) {
+            return HookFeature.CLOUD_OPTIMIZATION;
+        }
+        if (value == CLOUD_BACKUP_ROUTE) {
+            return HookFeature.CLOUD_BACKUP_SYNC;
+        }
+        if (value == FEEDBACK_ROUTE) {
+            return HookFeature.FEEDBACK_BLOCK;
+        }
+        if (value == INTENT_RECOMMEND_ROUTE) {
+            return HookFeature.WISDOM_RECOMMENDATION;
+        }
+        return null;
+    }
+
+    private static boolean isCloudBackupActivity(Activity activity) {
+        if (activity == null) {
+            return false;
+        }
+        Intent intent = activity.getIntent();
+        return intent != null
+                && intent.getByteExtra(SETTINGS_PAGE_TYPE_EXTRA, (byte) 0)
+                == CLOUD_BACKUP_PAGE_TYPE;
+    }
+
+    private void clearPendingCloudActions(Field pendingBackupField, Field pendingRecoveryField) {
+        try {
+            pendingBackupField.setBoolean(null, false);
+            pendingRecoveryField.setBoolean(null, false);
+        } catch (Throwable t) {
+            logMessage("failed to clear pending cloud actions: " + t);
+        }
+    }
+
+    private void updateSettingsRootLabels(
+            Object fragment,
+            Method findPreferenceMethod,
+            Method setTitleResourceMethod,
+            Method getSummaryMethod,
+            Method setSummaryMethod
+    ) {
+        if (fragment == null) {
+            return;
+        }
+
+        try {
+            Object dictionaryPreference = findPreferenceMethod.invoke(fragment, SETTINGS_CIKU_KEY);
+            if (dictionaryPreference != null) {
+                if (enabled(HookFeature.CLOUD_BACKUP_SYNC)) {
+                    setTitleResourceMethod.invoke(dictionaryPreference, CIKU_TITLE_RES_ID);
+                }
+                CharSequence summary = (CharSequence) getSummaryMethod.invoke(dictionaryPreference);
+                CharSequence updated = filterDelimitedSummary(
+                        summary,
+                        4,
+                        enabled(HookFeature.CLOUD_OPTIMIZATION),
+                        enabled(HookFeature.CLOUD_BACKUP_SYNC),
+                        enabled(HookFeature.CLOUD_BACKUP_SYNC)
+                );
+                if (updated != summary) {
+                    setSummaryMethod.invoke(dictionaryPreference, updated);
+                }
+            }
+        } catch (Throwable t) {
+            logMessage("failed to update dictionary settings label: " + t);
+        }
+
+        try {
+            Object generalPreference = findPreferenceMethod.invoke(fragment, SETTINGS_GENERAL_KEY);
+            if (generalPreference != null && enabled(HookFeature.CLOUD_INPUT)) {
+                CharSequence summary = (CharSequence) getSummaryMethod.invoke(generalPreference);
+                CharSequence updated = filterDelimitedSummary(
+                        summary,
+                        5,
+                        true,
+                        false,
+                        false,
+                        false
+                );
+                if (updated != summary) {
+                    setSummaryMethod.invoke(generalPreference, updated);
+                }
+            }
+        } catch (Throwable t) {
+            logMessage("failed to update general settings summary: " + t);
+        }
+    }
+
+    private static CharSequence filterDelimitedSummary(
+            CharSequence summary,
+            int expectedParts,
+            boolean... removeAfterFirst
+    ) {
+        if (summary == null) {
+            return summary;
+        }
+        String[] parts = summary.toString().split("\u3001", -1);
+        if (parts.length != expectedParts || removeAfterFirst.length != expectedParts - 1) {
+            return summary;
+        }
+        StringBuilder result = new StringBuilder();
+        result.append(parts[0]);
+        for (int i = 1; i < parts.length; i++) {
+            if (!removeAfterFirst[i - 1]) {
+                result.append('\u3001').append(parts[i]);
+            }
+        }
+        String updated = result.toString();
+        return updated.contentEquals(summary) ? summary : updated;
+    }
+
+    private void removePreferenceOrOnlyCategory(
+            Object fragment,
+            String key,
+            Class<?> preferenceGroupClass,
+            Method findPreferenceMethod,
+            Method removePreferenceMethod,
+            Method getParentMethod,
+            Method getChildCountMethod,
+            Method getChildMethod,
+            Method removeChildMethod
+    ) {
+        if (fragment == null) {
+            return;
+        }
+
+        try {
+            Object preference = findPreferenceMethod.invoke(fragment, key);
+            if (preference == null) {
+                return;
+            }
+            Object parent = getParentMethod.invoke(preference);
+            if (preferenceGroupClass.isInstance(parent)
+                    && Integer.valueOf(1).equals(getChildCountMethod.invoke(parent))
+                    && getChildMethod.invoke(parent, 0) == preference) {
+                Object grandParent = getParentMethod.invoke(parent);
+                if (preferenceGroupClass.isInstance(grandParent)
+                        && Boolean.TRUE.equals(removeChildMethod.invoke(grandParent, parent))) {
+                    return;
+                }
+            }
+        } catch (Throwable t) {
+            logMessage("failed to remove preference category for " + key + ": " + t);
+        }
+
+        removeHostPreference(fragment, key, removePreferenceMethod);
+    }
+
+    private void hideCloudInputPreference(
+            Object fragment,
+            Class<?> cloudInputPreferenceClass,
+            Method findPreferenceMethod,
+            Field visibleField,
+            Method notifyHierarchyChangedMethod
+    ) {
+        if (fragment == null) {
+            return;
+        }
+        try {
+            Object preference = findPreferenceMethod.invoke(fragment, CLOUD_INPUT_KEY);
+            if (!cloudInputPreferenceClass.isInstance(preference)) {
+                return;
+            }
+            if (visibleField.getBoolean(preference)) {
+                visibleField.setBoolean(preference, false);
+                notifyHierarchyChangedMethod.invoke(preference);
+            }
+        } catch (Throwable t) {
+            logMessage("failed to hide cloud input preference: " + t);
+        }
+    }
+
+    private void hookMyCenterPage(ClassLoader classLoader) {
+        safe("shop my-center cleanup", () -> {
+            Class<?> myCenterClass = findClass(
+                    classLoader,
+                    "com.baidu.input.shop.mycenter.MyCenterFragment"
+            );
+            Class<?> menuDataClass = findClass(classLoader, "com.baidu.zo8");
+            Field menuDataField = findField(myCenterClass, "o", ArrayList.class);
+            Method menuTitleMethod = findMethod(menuDataClass, "d", int.class);
+            Method initializePageMethod = findMethod(myCenterClass, "q0", void.class);
+            Method resumePageMethod = findMethod(myCenterClass, "onResume", void.class);
+            Method fetchPromotionMethod = findMethod(myCenterClass, "g0", void.class);
+            Method createViewMethod = findMethod(
+                    myCenterClass,
+                    "onCreateView",
+                    View.class,
+                    LayoutInflater.class,
+                    ViewGroup.class,
+                    Bundle.class
+            );
+
+            installConstantHook(
+                    fetchPromotionMethod,
+                    HookFeature.SHOP_PROMOTION_CLEANUP,
+                    null
+            );
+
+            installEmotionMenuFilter(
+                    initializePageMethod,
+                    menuDataField,
+                    menuTitleMethod
+            );
+            installEmotionMenuFilter(
+                    resumePageMethod,
+                    menuDataField,
+                    menuTitleMethod
+            );
+
+            hook(createViewMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (result instanceof View) {
+                            cleanMyCenterViews((View) result);
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void hookShopTabs(ClassLoader classLoader) {
+        safe("shop tabs cleanup", () -> {
+            Class<?> shopHomeClass = findClass(
+                    classLoader,
+                    "com.baidu.input.shop.ui.home.ImeShopHomeFragment"
+            );
+            Class<?> tabDataClass = findClass(classLoader, "com.baidu.yg8");
+            Class<?> shopViewModelClass = findClass(classLoader, "com.baidu.mq6");
+            Class<?> shopBindingClass = findClass(classLoader, "com.baidu.hp");
+            Class<?> bottomNavClass = findClass(
+                    classLoader,
+                    "com.baidu.input.shop.widget.bottomnav.LottieBottomNav"
+            );
+            Method tabTagMethod = findMethod(tabDataClass, "e", Object.class);
+            Field shopBindingField = findField(shopHomeClass, "a", shopBindingClass);
+            Field bottomNavField = findField(shopBindingClass, "b", bottomNavClass);
+            Field bottomNavSelectedIndexField = findField(bottomNavClass, "e", int.class);
+            Method installTabsMethod = findMethod(
+                    shopHomeClass,
+                    "I",
+                    void.class,
+                    shopHomeClass,
+                    List.class
+            );
+            Method selectTabMethod = findMethod(
+                    shopHomeClass,
+                    "J",
+                    void.class,
+                    String.class,
+                    String.class
+            );
+            Method requestedTabMethod = findMethod(shopHomeClass, "G", String.class);
+            Method requestedSubTabMethod = findMethod(shopHomeClass, "F", String.class);
+            Method getViewModelMethod = findMethod(shopHomeClass, "H", shopViewModelClass);
+            Method refreshTabsMethod = findMethod(shopViewModelClass, "g", void.class);
+            Method resumeFragmentMethod = findMethod(shopHomeClass, "onResume", void.class);
+
+            hook(installTabsMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        int mask = shopTabCleanupMask();
+                        Object fragment = chain.getArg(0);
+                        Object originalMenuItems = chain.getArg(1);
+                        FilteredShopTabs filteredTabs = filterShopTabs(
+                                fragment,
+                                originalMenuItems,
+                                tabTagMethod,
+                                mask
+                        );
+                        if (filteredTabs == null) {
+                            ShopTabState previous = fragment == null
+                                    ? null
+                                    : shopTabStates.remove(fragment);
+                            Object result;
+                            try {
+                                result = chain.proceed();
+                            } catch (Throwable t) {
+                                if (fragment != null) {
+                                    restoreShopTabState(fragment, previous);
+                                }
+                                throw t;
+                            }
+                            if (shouldRestoreShopBottomNav(previous, originalMenuItems)) {
+                                restoreShopBottomNav(
+                                        fragment,
+                                        shopBindingField,
+                                        bottomNavField
+                                );
+                            }
+                            return result;
+                        }
+
+                        if (mask != 0 && !prepareShopBottomNavSelection(
+                                fragment,
+                                shopBindingField,
+                                bottomNavField,
+                                bottomNavSelectedIndexField,
+                                filteredTabs.menuItems.size()
+                        )) {
+                            ShopTabState previous = shopTabStates.remove(fragment);
+                            Object result;
+                            try {
+                                result = chain.proceed();
+                            } catch (Throwable t) {
+                                restoreShopTabState(fragment, previous);
+                                throw t;
+                            }
+                            if (shouldRestoreShopBottomNav(previous, originalMenuItems)) {
+                                restoreShopBottomNav(
+                                        fragment,
+                                        shopBindingField,
+                                        bottomNavField
+                                );
+                            }
+                            return result;
+                        }
+
+                        ShopTabState state = filteredTabs.state;
+                        ShopTabState previous = shopTabStates.put(fragment, state);
+                        Object result;
+                        try {
+                            result = mask == 0
+                                    ? chain.proceed()
+                                    : chain.proceed(
+                                            new Object[] { fragment, filteredTabs.menuItems }
+                                    );
+                        } catch (Throwable t) {
+                            restoreShopTabState(fragment, previous);
+                            throw t;
+                        }
+                        if (mask != 0 && filteredTabs.menuItems.size() == 1) {
+                            try {
+                                selectTabMethod.invoke(
+                                        fragment,
+                                        requestedTabMethod.invoke(fragment),
+                                        requestedSubTabMethod.invoke(fragment)
+                                );
+                            } catch (Throwable t) {
+                                logMessage("failed to select the only visible shop tab: " + t);
+                            }
+                        }
+                        if (previous != null
+                                && previous.tags.size() == 1
+                                && state.tags.size() > 1) {
+                            restoreShopBottomNav(
+                                    fragment,
+                                    shopBindingField,
+                                    bottomNavField
+                            );
+                        }
+                        return result;
+                    });
+
+            hook(selectTabMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object fragment = chain.getThisObject();
+                        int mask = shopTabCleanupMask();
+                        ShopTabState state = shopTabStates.get(fragment);
+                        if (state != null && state.appliedMask != mask) {
+                            refreshShopTabs(
+                                    fragment,
+                                    getViewModelMethod,
+                                    refreshTabsMethod
+                            );
+                            state = shopTabStates.get(fragment);
+                        }
+                        if (mask == 0 || state == null || state.appliedMask != mask) {
+                            return chain.proceed();
+                        }
+                        Object requested = chain.getArg(0);
+                        String requestedTag = requested instanceof String ? (String) requested : null;
+                        if (requestedTag != null
+                                && !requestedTag.isEmpty()
+                                && state.tags.contains(requestedTag)) {
+                            return chain.proceed();
+                        }
+                        return chain.proceed(new Object[] { state.firstTag, null });
+                    });
+
+            hook(resumeFragmentMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        Object fragment = chain.getThisObject();
+                        ShopTabState state = shopTabStates.get(fragment);
+                        int mask = shopTabCleanupMask();
+                        if (state != null && state.appliedMask != mask) {
+                            refreshShopTabs(
+                                    fragment,
+                                    getViewModelMethod,
+                                    refreshTabsMethod
+                            );
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void hookMyCenterDynamicPage(ClassLoader classLoader) {
+        safe("my-center dynamic page", () -> {
+            Class<?> dynamicViewModelClass = findClass(
+                    classLoader,
+                    "com.baidu.input.shopbase.dynamic.DynamicViewModel"
+            );
+            Method fetchDynamicPage = findMethod(
+                    dynamicViewModelClass,
+                    "F",
+                    void.class,
+                    String.class
+            );
+
+            hook(fetchDynamicPage)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> enabled(HookFeature.SHOP_PROMOTION_CLEANUP)
+                            && MY_CENTER_DYNAMIC_PAGE_MARK.equals(chain.getArg(0))
+                            ? null
+                            : chain.proceed());
+        });
+    }
+
+    private void installEmotionMenuFilter(
+            Method hostMethod,
+            Field menuDataField,
+            Method menuTitleMethod
+    ) {
+        hook(hostMethod)
+                .setExceptionMode(ExceptionMode.PROTECTIVE)
+                .intercept(chain -> {
+                    if (!enabled(HookFeature.EMOTION_SHOP_CLEANUP)) {
+                        return chain.proceed();
+                    }
+                    RemovedMenuItem removed = temporarilyRemoveEmotionMenuItem(
+                            chain.getThisObject(),
+                            menuDataField,
+                            menuTitleMethod
+                    );
+                    try {
+                        return chain.proceed();
+                    } finally {
+                        restoreEmotionMenuItem(
+                                chain.getThisObject(),
+                                menuDataField,
+                                removed
+                        );
+                    }
+                });
+    }
+
+    private RemovedMenuItem temporarilyRemoveEmotionMenuItem(
+            Object fragment,
+            Field menuDataField,
+            Method menuTitleMethod
+    ) {
+        if (fragment == null) {
+            return null;
+        }
+
+        try {
+            Object value = menuDataField.get(fragment);
+            if (!(value instanceof List<?>)) {
+                return null;
+            }
+
+            List<?> items = (List<?>) value;
+            for (int index = 0; index < items.size(); index++) {
+                Object item = items.get(index);
+                Object title = menuTitleMethod.invoke(item);
+                if (title instanceof Integer && (Integer) title == USER_EMOTION_TITLE_RES_ID) {
+                    Object removed = items.remove(index);
+                    return new RemovedMenuItem(index, removed);
+                }
+            }
+        } catch (Throwable t) {
+            logMessage("failed to remove my-center emotion item: " + t);
+        }
+        return null;
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private void restoreEmotionMenuItem(
+            Object fragment,
+            Field menuDataField,
+            RemovedMenuItem removed
+    ) {
+        if (fragment == null || removed == null) {
+            return;
+        }
+        try {
+            Object value = menuDataField.get(fragment);
+            if (!(value instanceof List<?>)) {
+                return;
+            }
+            List items = (List) value;
+            if (!items.contains(removed.item)) {
+                items.add(Math.min(removed.index, items.size()), removed.item);
+            }
+        } catch (Throwable t) {
+            logMessage("failed to restore my-center emotion item: " + t);
+        }
+    }
+
+    private FilteredShopTabs filterShopTabs(
+            Object fragment,
+            Object menuItems,
+            Method tabTagMethod,
+            int mask
+    ) {
+        if (fragment == null || !(menuItems instanceof List<?>)) {
+            return null;
+        }
+        try {
+            ArrayList<Object> visibleItems = new ArrayList<>(((List<?>) menuItems).size());
+            ArrayList<String> visibleTags = new ArrayList<>(((List<?>) menuItems).size());
+            Set<String> seenTags = new HashSet<>();
+            for (Object item : (List<?>) menuItems) {
+                Object tagValue = tabTagMethod.invoke(item);
+                if (!(tagValue instanceof String)) {
+                    return null;
+                }
+                String tag = (String) tagValue;
+                if (!seenTags.add(tag)) {
+                    return null;
+                }
+                if (!isHiddenShopTab(tag, mask)) {
+                    visibleItems.add(item);
+                    visibleTags.add(tag);
+                }
+            }
+            if (visibleItems.isEmpty()) {
+                return null;
+            }
+            return new FilteredShopTabs(
+                    visibleItems,
+                    new ShopTabState(visibleTags, mask)
+            );
+        } catch (Throwable t) {
+            logMessage("failed to filter shop tabs: " + t);
+            return null;
+        }
+    }
+
+    private int shopTabCleanupMask() {
+        FeatureSnapshot snapshot = featureSnapshot.get();
+        int mask = 0;
+        if (snapshot.isEnabled(HookFeature.ONLINE_SKIN_SHOP_CLEANUP)) {
+            mask |= SHOP_MASK_SKIN;
+        }
+        if (snapshot.isEnabled(HookFeature.EMOTION_SHOP_CLEANUP)) {
+            mask |= SHOP_MASK_EMOTION;
+        }
+        if (snapshot.isEnabled(HookFeature.FONT_SHOP_CLEANUP)) {
+            mask |= SHOP_MASK_FONT;
+        }
+        return mask;
+    }
+
+    private static boolean isHiddenShopTab(String tag, int mask) {
+        if (SHOP_SKIN_TAB.equals(tag)) {
+            return (mask & SHOP_MASK_SKIN) != 0;
+        }
+        if (SHOP_EMOTION_TAB.equals(tag)) {
+            return (mask & SHOP_MASK_EMOTION) != 0;
+        }
+        return SHOP_FONT_TAB.equals(tag) && (mask & SHOP_MASK_FONT) != 0;
+    }
+
+    private static String selectShopFallbackTag(List<String> tags) {
+        String[] priority = {
+                SHOP_SKIN_TAB,
+                SHOP_EMOTION_TAB,
+                SHOP_MY_TAB,
+                SHOP_FONT_TAB
+        };
+        for (String candidate : priority) {
+            if (tags.contains(candidate)) {
+                return candidate;
+            }
+        }
+        return tags.get(0);
+    }
+
+    private void restoreShopTabState(Object fragment, ShopTabState previous) {
+        if (previous == null) {
+            shopTabStates.remove(fragment);
+        } else {
+            shopTabStates.put(fragment, previous);
+        }
+    }
+
+    private static boolean shouldRestoreShopBottomNav(
+            ShopTabState previous,
+            Object menuItems
+    ) {
+        return previous != null
+                && previous.tags.size() == 1
+                && menuItems instanceof List<?>
+                && ((List<?>) menuItems).size() > 1;
+    }
+
+    private boolean prepareShopBottomNavSelection(
+            Object fragment,
+            Field shopBindingField,
+            Field bottomNavField,
+            Field selectedIndexField,
+            int menuSize
+    ) {
+        if (fragment == null || menuSize <= 0) {
+            return false;
+        }
+        try {
+            Object binding = shopBindingField.get(fragment);
+            Object bottomNav = binding == null ? null : bottomNavField.get(binding);
+            if (bottomNav == null) {
+                return false;
+            }
+            int selectedIndex = selectedIndexField.getInt(bottomNav);
+            if (selectedIndex < 0 || selectedIndex >= menuSize) {
+                selectedIndexField.setInt(bottomNav, 0);
+            }
+            return true;
+        } catch (Throwable t) {
+            logMessage("failed to prepare shop bottom navigation: " + t);
+            return false;
+        }
+    }
+
+    private void refreshShopTabs(
+            Object fragment,
+            Method getViewModelMethod,
+            Method refreshTabsMethod
+    ) {
+        if (fragment == null) {
+            return;
+        }
+        try {
+            Object viewModel = getViewModelMethod.invoke(fragment);
+            refreshTabsMethod.invoke(viewModel);
+        } catch (Throwable t) {
+            logMessage("failed to refresh shop tabs after settings change: " + t);
+        }
+    }
+
+    private void restoreShopBottomNav(
+            Object fragment,
+            Field shopBindingField,
+            Field bottomNavField
+    ) {
+        if (fragment == null) {
+            return;
+        }
+        try {
+            Object binding = shopBindingField.get(fragment);
+            Object value = binding == null ? null : bottomNavField.get(binding);
+            if (value instanceof View && ((View) value).getVisibility() == View.GONE) {
+                ((View) value).setVisibility(View.VISIBLE);
+            }
+        } catch (Throwable t) {
+            logMessage("failed to restore shop bottom navigation: " + t);
+        }
+    }
+
+    private void cleanMyCenterViews(View root) {
+        if (enabled(HookFeature.ACCOUNT_ISOLATION)) {
+            View loginContainer = root.findViewById(VIEW_ID_CL_LOGIN);
+            if (loginContainer != null && loginContainer.getParent() instanceof View) {
+                ((View) loginContainer.getParent()).setVisibility(View.GONE);
+            }
+            hideHostView(root, VIEW_ID_CL_HEADER);
+        }
+
+        if (enabled(HookFeature.SHOP_PROMOTION_CLEANUP)) {
+            hideHostView(root, VIEW_ID_AD_CONTAINER);
+            hideHostView(root, VIEW_ID_MEMBER_BANNER);
+        }
+        if (enabled(HookFeature.FEEDBACK_BLOCK)) {
+            hideHostView(root, VIEW_ID_CL_FEEDBACK);
+            hideHostView(root, VIEW_ID_LINE_HELP);
+        }
+    }
+
+    private static void hideHostView(View root, int id) {
+        View view = root.findViewById(id);
+        if (view != null) {
+            view.setVisibility(View.GONE);
+        }
+    }
+
+    private void hookAccountIsolation(ClassLoader classLoader) throws Throwable {
+        Class<?> passportClass = findClass(
+                classLoader,
+                "com.baidu.input.account.pub.PassportSdkProxy"
+        );
+        Method passportInit = findMethod(
+                passportClass,
+                "A",
+                void.class,
+                Context.class
+        );
+        Method directPassportInit = findMethod(
+                passportClass,
+                "m",
+                void.class,
+                Context.class
+        );
+
+        installConstantHook(passportInit, HookFeature.ACCOUNT_ISOLATION, null);
+        installConstantHook(directPassportInit, HookFeature.ACCOUNT_ISOLATION, null);
+    }
+
+    private void hookBackgroundUpdateCheck(ClassLoader classLoader) {
+        safe("background update check", () -> {
+            Class<?> updateAgentClass = findClass(classLoader, "com.baidu.u87");
+            Class<?> updateCallbackClass = findClass(classLoader, "com.baidu.i87");
+            Class<?> settingsUpdateCallbackClass = findClass(classLoader, "com.baidu.y6b$a");
+            Field callbackField = findField(updateAgentClass, "a", updateCallbackClass);
+            Field thresholdField = findField(updateAgentClass, "e", int.class);
+            Method startCheckMethod = findMethod(updateAgentClass, "S", void.class);
+            Method reportResultMethod = findMethod(
+                    updateCallbackClass,
+                    "a",
+                    void.class,
+                    int.class,
+                    int.class,
+                    boolean.class
+            );
+
+            hook(startCheckMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (!enabled(HookFeature.BACKGROUND_UPDATE_CHECK)) {
+                            return chain.proceed();
+                        }
+                        Object agent = chain.getThisObject();
+                        Object callback = callbackField.get(agent);
+                        if (thresholdField.getInt(agent) != Integer.MAX_VALUE
+                                || !settingsUpdateCallbackClass.isInstance(callback)) {
+                            return chain.proceed();
+                        }
+
+                        invokeCallback(reportResultMethod, callback, 0, HOST_VERSION_CODE, false);
+                        return null;
+                    });
+        });
+    }
+
+    private void hookRemoteSkinUpgradeCheck(ClassLoader classLoader) {
+        safe("remote skin upgrade check", () -> {
+            Class<?> skinUpgradeClass = findClass(classLoader, "com.baidu.fgd");
+            Method checkSkinUpgrade = findMethod(skinUpgradeClass, "a", void.class);
+
+            installConstantHook(
+                    checkSkinUpgrade,
+                    HookFeature.REMOTE_SKIN_UPGRADE,
+                    null
+            );
+        });
+    }
+
+    private void hookPrivacyTelemetry(ClassLoader classLoader) {
+        safe("main stats collection", () -> {
+            Class<?> statsBootstrapClass = findClass(classLoader, "com.baidu.qrc");
+            Class<?> requestStatsClass = findClass(classLoader, "com.baidu.qee");
+            Method initializeStats = findMethod(statsBootstrapClass, "f", void.class);
+            Method recordRequestStats = findMethod(
+                    requestStatsClass,
+                    "C",
+                    boolean.class,
+                    int.class,
+                    String.class
+            );
+
+            installConstantHook(initializeStats, HookFeature.PRIVACY_TELEMETRY, null);
+            installConstantHook(recordRequestStats, HookFeature.PRIVACY_TELEMETRY, false);
+        });
+
+        safe("SAPI stats", () -> {
+            Class<?> sapiStatsClass = findClass(
+                    classLoader,
+                    "com.baidu.sapi2.utils.StatService"
+            );
+            Class<?> sapiParamsClass = findClass(
+                    classLoader,
+                    "com.baidu.sapi2.httpwrap.HttpHashMapWrap"
+            );
+            Method recordSapiEvent = findMethod(
+                    sapiStatsClass,
+                    "onEvent",
+                    void.class,
+                    String.class,
+                    Map.class
+            );
+            Method sendSapiStats = findMethod(
+                    sapiStatsClass,
+                    "sendRequest",
+                    void.class,
+                    sapiParamsClass
+            );
+
+            installConstantHook(recordSapiEvent, HookFeature.PRIVACY_TELEMETRY, null);
+            installConstantHook(sendSapiStats, HookFeature.PRIVACY_TELEMETRY, null);
+        });
+
+        safe("crash upload", () -> {
+            Class<?> crashUploadClass = findClass(classLoader, "com.baidu.ar3");
+            Class<?> uploadCallbackClass = findClass(classLoader, "com.baidu.trc");
+            Method uploadCrash = findMethod(
+                    crashUploadClass,
+                    "c",
+                    void.class,
+                    byte[].class,
+                    uploadCallbackClass
+            );
+            Method uploadSucceeded = findMethod(
+                    uploadCallbackClass,
+                    "onSuccess",
+                    void.class
+            );
+
+            hook(uploadCrash)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (!enabled(HookFeature.PRIVACY_TELEMETRY)) {
+                            return chain.proceed();
+                        }
+                        postCallbackOnMainThread(uploadSucceeded, chain.getArg(1));
+                        return null;
+                    });
+        });
+    }
+
+    private void hookAdSdkGates(ClassLoader classLoader) {
+        safe("ad SDK gates", () -> {
+            Class<?> adConfigClass = findClass(classLoader, "com.baidu.zu");
+            Method enableBeiZi = findMethod(adConfigClass, "b", boolean.class);
+            Method enablePangolin = findMethod(adConfigClass, "c", boolean.class);
+            Method enableGdt = findMethod(adConfigClass, "d", boolean.class);
+            Method enableSplash = findMethod(adConfigClass, "e", boolean.class);
+            Method enableMobAds = findMethod(adConfigClass, "f", boolean.class);
+
+            installConstantHook(enableBeiZi, HookFeature.AD_SDK_BLOCK, false);
+            installConstantHook(enablePangolin, HookFeature.AD_SDK_BLOCK, false);
+            installConstantHook(enableGdt, HookFeature.AD_SDK_BLOCK, false);
+            installConstantHook(enableSplash, HookFeature.AD_SDK_BLOCK, false);
+            installConstantHook(enableMobAds, HookFeature.AD_SDK_BLOCK, false);
+        });
+
+        safe("MobAds shop bootstrap", () -> {
+            Class<?> mobAdsInitializerClass = findClass(
+                    classLoader,
+                    "com.baidu.input.mobsdk.impl.ImeMobAdSdkImpl"
+            );
+            Method initializeMobAds = findMethod(mobAdsInitializerClass, "U2", void.class);
+
+            installConstantHook(initializeMobAds, HookFeature.AD_SDK_BLOCK, null);
+        });
+    }
+
+    private void hookCandidateAdvertisement(ClassLoader classLoader) {
+        safe("candidate advertisement display", () -> {
+            Class<?> candidateAdvertisementClass = findClass(classLoader, "com.baidu.ee1");
+            Method canDisplayAdvertisement = findMethod(
+                    candidateAdvertisementClass,
+                    "h",
+                    boolean.class
+            );
+
+            installConstantHook(
+                    canDisplayAdvertisement,
+                    HookFeature.ACTIVITY_RECOMMENDATION,
+                    false
+            );
+        });
+
+        safe("candidate advertisement registration", () -> {
+            Class<?> notificationCenterClass = findClass(classLoader, "com.baidu.ty8");
+            Class<?> notificationHandlerClass = findClass(classLoader, "com.baidu.is5");
+            Method registerNotificationHandler = findMethod(
+                    notificationCenterClass,
+                    "Q2",
+                    void.class,
+                    String.class,
+                    notificationHandlerClass
+            );
+
+            hook(registerNotificationHandler)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> enabled(HookFeature.ACTIVITY_RECOMMENDATION)
+                            && CANDIDATE_ADVERTISEMENT_KEY.equals(chain.getArg(0))
+                            ? null
+                            : chain.proceed());
+        });
+
+        safe("candidate advertisement image download", () -> {
+            Class<?> candidateAdvertisementClass = findClass(classLoader, "com.baidu.ee1");
+            Class<?> strategyClass = findClass(
+                    classLoader,
+                    "com.baidu.input.noti.notiv3.CandAdvStrategyBean"
+            );
+            Class<?> downloadCallbackClass = findClass(classLoader, "com.baidu.ee1$b");
+            Method downloadAdvertisementImage = findMethod(
+                    candidateAdvertisementClass,
+                    "o",
+                    void.class,
+                    strategyClass,
+                    downloadCallbackClass
+            );
+
+            installConstantHook(
+                    downloadAdvertisementImage,
+                    HookFeature.ACTIVITY_RECOMMENDATION,
+                    null
+            );
+        });
+    }
+
+    private void installConstantHook(Method method, HookFeature feature, Object result) {
+        hook(method)
+                .setExceptionMode(ExceptionMode.PROTECTIVE)
+                .intercept(chain -> enabled(feature) ? result : chain.proceed());
+    }
+
+    private void invokeCallback(Method callback, Object target, Object... args) {
+        if (target == null) {
+            return;
+        }
+        try {
+            callback.invoke(target, args);
+        } catch (Throwable t) {
+            logMessage("disabled capability callback failed: " + t);
+        }
+    }
+
+    private void postCallbackOnMainThread(Method callback, Object target, Object... args) {
+        if (target == null) {
+            return;
+        }
+        Handler handler = new Handler(Looper.getMainLooper());
+        if (!handler.post(() -> invokeCallback(callback, target, args))) {
+            logMessage("failed to schedule disabled capability callback");
+        }
     }
 
     private void enforceClipCountField(Object config, HookTargets targets) {
@@ -200,6 +2858,15 @@ public final class HookEntry extends XposedModule {
         return method;
     }
 
+    private static Constructor<?> findConstructor(
+            Class<?> targetClass,
+            Class<?>... parameterTypes
+    ) throws NoSuchMethodException {
+        Constructor<?> constructor = targetClass.getDeclaredConstructor(parameterTypes);
+        constructor.setAccessible(true);
+        return constructor;
+    }
+
     private static Field findField(Class<?> targetClass, String fieldName) throws NoSuchFieldException {
         Field field = targetClass.getDeclaredField(fieldName);
         field.setAccessible(true);
@@ -233,6 +2900,38 @@ public final class HookEntry extends XposedModule {
 
     private interface HookInstaller {
         void install() throws Throwable;
+    }
+
+    private static final class ShopTabState {
+        private final List<String> tags;
+        private final String firstTag;
+        private final int appliedMask;
+
+        private ShopTabState(List<String> tags, int appliedMask) {
+            this.tags = tags;
+            this.firstTag = selectShopFallbackTag(tags);
+            this.appliedMask = appliedMask;
+        }
+    }
+
+    private static final class FilteredShopTabs {
+        private final List<Object> menuItems;
+        private final ShopTabState state;
+
+        private FilteredShopTabs(List<Object> menuItems, ShopTabState state) {
+            this.menuItems = menuItems;
+            this.state = state;
+        }
+    }
+
+    private static final class RemovedMenuItem {
+        private final int index;
+        private final Object item;
+
+        private RemovedMenuItem(int index, Object item) {
+            this.index = index;
+            this.item = item;
+        }
     }
 
     private static final class HookProfile {

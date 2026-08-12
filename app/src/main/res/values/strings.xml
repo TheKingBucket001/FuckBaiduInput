@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">FuckBaiduInput</string>
-    <string name="app_description">解除 OPPO 版百度输入法剪贴板限制</string>
+    <string name="app_description">可配置的 OPPO 版百度输入法 Hook 控制模块</string>
 </resources>

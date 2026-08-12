@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <queries>
+        <package android:name="com.baidu.input_oppo" />
+    </queries>
 
     <application
+        android:name=".HookSettingsApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -10,12 +16,31 @@
         android:label="@string/app_name"
         android:supportsRtl="true">
 
-        <!-- No user-facing UI is needed for this pure hook module. -->
+        <!-- The legacy launcher entry remains inert; settings are opened by the host. -->
         <activity
             android:name=".MainActivity"
-            android:exported="false"
-            android:excludeFromRecents="true">
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
         </activity>
+
+        <provider
+            android:name=".HookSettingsProvider"
+            android:authorities="${applicationId}.settings"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            tools:ignore="ExportedContentProvider" />
+
+        <provider
+            android:name="io.github.libxposed.service.XposedProvider"
+            tools:node="remove" />
+
+        <provider
+            android:name="io.github.libxposed.service.SecureXposedProvider"
+            android:authorities="${applicationId}.XposedService"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
     </application>
 
 </manifest>

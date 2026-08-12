@@ -49,8 +49,8 @@ android {
         applicationId = "com.fuckbaiduinput"
         minSdk = 27
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.4.1"
+        versionCode = 10
+        versionName = "0.7.0"
     }
 
     buildTypes {
@@ -81,6 +81,10 @@ android {
 
 dependencies {
     compileOnly(libs.libxposed.api)
+    implementation(libs.libxposed.service) {
+        // The service and interface artifacts contain no Kotlin runtime references.
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
 }
 
 val checkReleaseSigning = tasks.register("checkReleaseSigning") {
