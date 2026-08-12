@@ -103,8 +103,8 @@ jobs:
             throw new Error('Expected exactly one release APK output.');
           }
           const element = metadata.elements[0];
-          const versionName = String(metadata.versionName ?? '');
-          const versionCode = Number(metadata.versionCode);
+          const versionName = String(element.versionName ?? '');
+          const versionCode = Number(element.versionCode);
           if (!/^\d+\.\d+\.\d+$/.test(versionName) || !Number.isInteger(versionCode) || versionCode < 10) {
             throw new Error(`Invalid release metadata: ${versionName} / ${versionCode}`);
           }
