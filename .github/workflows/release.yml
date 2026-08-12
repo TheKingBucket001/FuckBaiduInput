@@ -115,8 +115,11 @@ jobs:
           if (!fs.existsSync(source)) throw new Error(`Missing APK: ${source}`);
           const target = `FuckBaiduInput-v${versionName}.apk`;
           fs.copyFileSync(source, target);
-          fs.writeFileSync(process.env.GITHUB_ENV, `RELEASE_VERSION=${versionName}\nRELEASE_APK=${target}\n`, { flag: 'a' });
+          const releaseEnv = `RELEASE_VERSION=${versionName}\nRELEASE_APK=${target}\n`;
+          fs.writeFileSync('release.env', releaseEnv);
+          fs.appendFileSync(process.env.GITHUB_ENV, releaseEnv);
           NODE
+          source release.env
           APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           "$APKSIGNER" verify --verbose --print-certs "$RELEASE_APK" | tee "$RUNNER_TEMP/apksigner.txt"
           EXPECTED_CERT_SHA256="7CA9B268208613247C63081F9AC7B7697062A63CF529DE74F0A8C80973FAFC56"
