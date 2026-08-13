@@ -10,8 +10,6 @@
 - 版本：`8.5.302.367`
 - `versionCode`：`7244`
 
-模块会校验宿主包名、版本与 APK 身份。任何不匹配都会 fail-closed，不安装业务 Hook。历史公开版本和 GitHub 上的旧构建不是当前开发工作树的实现基线。
-
 ## 功能
 
 在宿主设置首页中，“语言及输入方式设置”上方会出现 `🚫 fuckinginput`。所有业务开关默认关闭，设置按以下分类组织：
@@ -51,38 +49,6 @@
 ```powershell
 .\gradlew.bat :app:assembleDebug :app:lintDebug
 ```
-
-`assembleRelease` 可用于未配置正式密钥时的构建检查，不能作为正式发行 APK。正式签名入口是：
-
-```powershell
-.\gradlew.bat :app:checkReleaseSigning :app:signRelease
-```
-
-通过环境变量或仓库外 `local.properties` 提供：
-
-```text
-RELEASE_STORE_FILE
-RELEASE_STORE_PASSWORD
-RELEASE_KEY_ALIAS
-RELEASE_KEY_PASSWORD
-```
-
-不要提交 keystore、私钥或签名属性。仓库中的 `txtoi-local` 仅用于本地构建链测试，不能替代正式发行签名。
-
-## 发布
-
-推送到 `master` 仅执行源码、Debug 构建和 lint 校验。推送 `v*` tag 后，GitHub Actions 会临时恢复 GitHub Secrets 中的正式 keystore，构建、校验证书与 APK 元数据，并创建对应 GitHub Release：
-
-```text
-RELEASE_KEYSTORE_BASE64
-RELEASE_STORE_PASSWORD
-RELEASE_KEY_ALIAS
-RELEASE_KEY_PASSWORD
-```
-
-tag 必须与 APK 版本严格一致，例如 `v0.8.1` 对应 `versionName = 0.8.1`。发行文件命名为 `FuckBaiduInput-v0.8.1.apk`。升级安装必须使用相同正式证书签名的 APK。
-
-当前发布版本为 `0.8.1 / 13`。历史 `v0.8.0` 发行说明见 [.github/release-notes/v0.8.0.md](.github/release-notes/v0.8.0.md)。本地研究与测试记录见 [项目研究档案](../项目研究档案.md) 和 [真机 Hook 测试手册](../真机Hook测试手册.md)。
 
 ## 许可证
 
