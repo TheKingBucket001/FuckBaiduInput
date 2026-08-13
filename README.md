@@ -80,9 +80,9 @@ RELEASE_KEY_ALIAS
 RELEASE_KEY_PASSWORD
 ```
 
-tag 必须与 APK 版本严格一致，例如 `v0.8.0` 对应 `versionName = 0.8.0`。发行文件命名为 `FuckBaiduInput-v0.8.0.apk`。升级安装必须使用相同正式证书签名的 APK。
+tag 必须与 APK 版本严格一致，例如 `v0.8.1` 对应 `versionName = 0.8.1`。发行文件命名为 `FuckBaiduInput-v0.8.1.apk`。升级安装必须使用相同正式证书签名的 APK。
 
-当前发布版本为 `0.8.0 / 12`。历史 `v0.7.0` 发行说明见 [.github/release-notes/v0.7.0.md](.github/release-notes/v0.7.0.md)。本地研究与测试记录见 [项目研究档案](../项目研究档案.md) 和 [真机 Hook 测试手册](../真机Hook测试手册.md)。
+当前发布版本为 `0.8.1 / 13`。历史 `v0.8.0` 发行说明见 [.github/release-notes/v0.8.0.md](.github/release-notes/v0.8.0.md)。本地研究与测试记录见 [项目研究档案](../项目研究档案.md) 和 [真机 Hook 测试手册](../真机Hook测试手册.md)。
 
 ## 许可证
 

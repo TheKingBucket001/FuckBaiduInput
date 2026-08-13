@@ -7,6 +7,9 @@ import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Rect;
 import android.util.Log;
 import android.os.Bundle;
 import android.os.Handler;
@@ -2544,15 +2547,16 @@ public final class HookEntry extends XposedModule {
                     .intercept(chain -> {
                         Bitmap original = (Bitmap) chain.proceed();
                         Object resourceId = chain.getArg(1);
-                        if (!enabled(HookFeature.CUSTOM_KEYBOARD_LOGO)
-                                || !(resourceId instanceof Integer)
+                        if (!(resourceId instanceof Integer)
                                 || (((Integer) resourceId).intValue()
                                 != DRAWABLE_PURE_MODE_CAND_ICON_NORMAL
                                 && ((Integer) resourceId).intValue()
                                 != DRAWABLE_PURE_MODE_CAND_ICON_DARK)) {
                             return original;
                         }
-                        return replacementOrOriginal(original);
+                        return enabled(HookFeature.CUSTOM_KEYBOARD_LOGO)
+                                ? replacementOrOriginal(original)
+                                : original;
                     });
         });
     }
@@ -2585,7 +2589,7 @@ public final class HookEntry extends XposedModule {
                 return cached;
             }
             try (JarFile moduleApk = new JarFile(getModuleApplicationInfo().sourceDir)) {
-                JarEntry entry = findModuleResourceEntry(moduleApk, "miku_keyboard_emoji.png");
+                JarEntry entry = moduleApk.getJarEntry("assets/miku_keyboard_emoji.png");
                 if (entry == null) {
                     logMessage("custom keyboard logo resource missing");
                     return null;
@@ -2595,12 +2599,26 @@ public final class HookEntry extends XposedModule {
                     if (source == null) {
                         return null;
                     }
-                    customKeyboardLogo = Bitmap.createScaledBitmap(source, width, height, true);
+                    int iconSize = Math.min(width, height);
+                    int offsetX = (width - iconSize) / 2;
+                    int offsetY = (height - iconSize) / 2;
+                    Bitmap replacement = Bitmap.createBitmap(
+                            width,
+                            height,
+                            Bitmap.Config.ARGB_8888
+                    );
+                    Canvas canvas = new Canvas(replacement);
+                    Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+                    canvas.drawBitmap(
+                            source,
+                            new Rect(4, 4, source.getWidth() - 5, source.getHeight() - 5),
+                            new Rect(offsetX, offsetY, offsetX + iconSize, offsetY + iconSize),
+                            paint
+                    );
+                    customKeyboardLogo = replacement;
                     customKeyboardLogoWidth = width;
                     customKeyboardLogoHeight = height;
-                    if (source != customKeyboardLogo) {
-                        source.recycle();
-                    }
+                    source.recycle();
                     return customKeyboardLogo;
                 }
             } catch (Throwable t) {
@@ -2608,17 +2626,6 @@ public final class HookEntry extends XposedModule {
                 return null;
             }
         }
-    }
-
-    private static JarEntry findModuleResourceEntry(JarFile moduleApk, String fileName) {
-        java.util.Enumeration<JarEntry> entries = moduleApk.entries();
-        while (entries.hasMoreElements()) {
-            JarEntry entry = entries.nextElement();
-            if (entry.getName().endsWith('/' + fileName)) {
-                return entry;
-            }
-        }
-        return null;
     }
 
     private void hookMyCenterDynamicPage(ClassLoader classLoader) {
