@@ -34,7 +34,9 @@ public enum HookFeature {
 
     HIDE_SEARCH("hide_search"),
     HIDE_MECHANICAL_KEYBOARD("hide_mechanical_keyboard"),
-    HIDE_FONT_SETTING("hide_font_setting");
+    HIDE_FONT_SETTING("hide_font_setting"),
+    HIDE_AI_WRITER("hide_ai_writer"),
+    CUSTOM_KEYBOARD_LOGO("custom_keyboard_logo");
 
     private static final Map<String, HookFeature> BY_KEY;
 

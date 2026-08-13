@@ -5,6 +5,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.util.Log;
 import android.os.Bundle;
 import android.os.Handler;
@@ -12,6 +14,9 @@ import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
+import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import java.io.InputStream;
@@ -63,6 +68,9 @@ public final class HookEntry extends XposedModule {
     private static final String TOOLBOX_FEEDBACK = "CLICK_INDEX_FEEDBACK";
     private static final String TOOLBOX_INTENT_RECOMMEND =
             "CLICK_INDEX_INTENT_RECOMMEND";
+    // The OPPO skin exposes two distinct panels that are both labelled “斗图”.
+    // Remove both instead of leaving a visually identical entry behind.
+    private static final int[] EMOTION_TYPE_DOUTU = { 2, 3 };
     private static final String TURBO_CLOUD_INTENT_FUNCTION = "FUNCTION_CLOUD_INTENT";
     private static final String SETTINGS_PAGE_TYPE_EXTRA = "settype";
     private static final String FEEDBACK_URL_EXTRA = "url";
@@ -93,8 +101,14 @@ public final class HookEntry extends XposedModule {
     private static final int VIEW_ID_CL_FEEDBACK = 0x7f0a02bb;
     private static final int VIEW_ID_CL_HEADER = 0x7f0a02bc;
     private static final int VIEW_ID_CL_LOGIN = 0x7f0a02c0;
+    private static final int VIEW_ID_EMOTION_SHOP = 0x7f0a0480;
+    private static final int VIEW_ID_EMOTION_STORE = 0x7f0a0482;
     private static final int VIEW_ID_LINE_HELP = 0x7f0a07ab;
     private static final int VIEW_ID_MEMBER_BANNER = 0x7f0a0905;
+    private static final int VIEW_ID_SKIN_SHARE_LAYOUT = 0x7f0a0d76;
+    private static final int DRAWABLE_PURE_MODE_CAND_ICON_DARK = 0x7f080dd1;
+    private static final int DRAWABLE_PURE_MODE_CAND_ICON_NORMAL = 0x7f080dd2;
+    private static final String HIDDEN_LOCAL_SKIN_NAME = "\u8b66\u6212\u7ebf";
     private static final int HOST_VERSION_CODE = 7244;
     private static final String HOST_VERSION_NAME = "8.5.302.367";
     private static final String HOST_MANIFEST_SHA256 =
@@ -133,6 +147,15 @@ public final class HookEntry extends XposedModule {
     private HostSettingsUi hostSettingsUi;
     private final Map<Object, ShopTabState> shopTabStates =
             Collections.synchronizedMap(new WeakHashMap<>());
+    /* The emotion panel is retained by the host, so configuration changes must
+     * update an already-created shop entry instead of waiting for panel rebuild. */
+    private final Map<View, EmotionStoreEntryState> emotionStoreEntries =
+            Collections.synchronizedMap(new WeakHashMap<>());
+    private final Map<TextView, DoutuTabState> doutuTabs =
+            Collections.synchronizedMap(new WeakHashMap<>());
+    private volatile Bitmap customKeyboardLogo;
+    private volatile int customKeyboardLogoWidth;
+    private volatile int customKeyboardLogoHeight;
     private final Set<Activity> feedbackActivities = Collections.synchronizedSet(
             Collections.newSetFromMap(new WeakHashMap<>())
     );
@@ -163,6 +186,7 @@ public final class HookEntry extends XposedModule {
 
         hookClipboardRecognition(classLoader);
         hookCleanUi(classLoader);
+        hookKeyboardLogoReplacement(classLoader);
         hookModuleSettingsPage(classLoader);
         hookBlockedSettingsRoutes(classLoader);
         hookShopStartup(classLoader);
@@ -231,6 +255,8 @@ public final class HookEntry extends XposedModule {
         if (finishFeedback) {
             finishTrackedFeedbackActivities(revision);
         }
+        synchronizeEmotionStoreEntries();
+        synchronizeDoutuTabs();
     }
 
     private boolean enabled(HookFeature feature) {
@@ -512,6 +538,11 @@ public final class HookEntry extends XposedModule {
         hookMyCenterPage(classLoader);
         hookMyCenterDynamicPage(classLoader);
         hookShopTabs(classLoader);
+        hookLocalSkinDetailCleanup(classLoader);
+        hookLocalSkinListCleanup(classLoader);
+        hookEmotionStoreEntryCleanup(classLoader);
+        hookDoutuPageCleanup(classLoader);
+        hookAiWriterEntryCleanup(classLoader);
     }
 
     private void hookSettingsRootCleanup(ClassLoader classLoader) {
@@ -2242,6 +2273,354 @@ public final class HookEntry extends XposedModule {
         });
     }
 
+    private void hookLocalSkinDetailCleanup(ClassLoader classLoader) {
+        safe("local skin detail cleanup", () -> {
+            Class<?> detailFragmentClass = findClass(
+                    classLoader,
+                    "com.baidu.input.shop.ui.skin.detail.SkinLocalDetailFragment"
+            );
+            Class<?> skinLocalInfoClass = findClass(
+                    classLoader,
+                    "com.baidu.input.shop.repository.skin.model.SkinLocalInfo"
+            );
+            Class<?> fragmentClass = findClass(classLoader, "androidx.fragment.app.Fragment");
+            Method bindSkinMethod = findMethod(
+                    detailFragmentClass,
+                    "W",
+                    void.class,
+                    skinLocalInfoClass
+            );
+            Method getFragmentViewMethod = fragmentClass.getMethod("getView");
+
+            hook(bindSkinMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (enabled(HookFeature.ONLINE_SKIN_SHOP_CLEANUP)) {
+                            Object root = getFragmentViewMethod.invoke(chain.getThisObject());
+                            if (root instanceof View) {
+                                hideHostView((View) root, VIEW_ID_SKIN_SHARE_LAYOUT);
+                            }
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void hookLocalSkinListCleanup(ClassLoader classLoader) {
+        safe("local skin list cleanup", () -> {
+            Class<?> adapterClass = findClass(classLoader, "com.baidu.x9c");
+            Class<?> itemDataClass = findClass(classLoader, "com.baidu.o9c");
+            Class<?> skinLocalInfoClass = findClass(
+                    classLoader,
+                    "com.baidu.input.shop.repository.skin.model.SkinLocalInfo"
+            );
+            Method submitItemsMethod = findMethod(adapterClass, "t", void.class, List.class);
+            Method getSkinLocalInfoMethod = findMethod(
+                    itemDataClass,
+                    "a",
+                    skinLocalInfoClass
+            );
+            Method getSkinNameMethod = findMethod(skinLocalInfoClass, "g", String.class);
+
+            hook(submitItemsMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (!enabled(HookFeature.ONLINE_SKIN_SHOP_CLEANUP)) {
+                            return chain.proceed();
+                        }
+                        Object items = chain.getArg(0);
+                        if (!(items instanceof List<?>)) {
+                            return chain.proceed();
+                        }
+                        try {
+                            ArrayList<Object> visibleItems = new ArrayList<>(((List<?>) items).size());
+                            for (Object item : (List<?>) items) {
+                                Object skin = getSkinLocalInfoMethod.invoke(item);
+                                Object name = getSkinNameMethod.invoke(skin);
+                                if (!HIDDEN_LOCAL_SKIN_NAME.equals(name)) {
+                                    visibleItems.add(item);
+                                }
+                            }
+                            return chain.proceed(new Object[] { visibleItems });
+                        } catch (Throwable t) {
+                            logMessage("failed to filter local skin list: " + t);
+                            return chain.proceed();
+                        }
+                    });
+        });
+    }
+
+    private void hookEmotionStoreEntryCleanup(ClassLoader classLoader) {
+        installEmotionStoreEntryHook(
+                classLoader, "com.baidu.fq8", "g0", "c", null, VIEW_ID_EMOTION_STORE
+        );
+        installEmotionStoreEntryHook(
+                classLoader, "com.baidu.n6d", "f0", "d", null, VIEW_ID_EMOTION_STORE
+        );
+        installEmotionStoreEntryHook(
+                classLoader, "com.baidu.tf9", "i0", "c", null, VIEW_ID_EMOTION_STORE
+        );
+        installEmotionStoreEntryHook(
+                classLoader, "com.baidu.eh9", "d0", "d", "k", VIEW_ID_EMOTION_SHOP
+        );
+        installEmotionStoreEntryHook(
+                classLoader, "com.baidu.xh9", "h0", "d", "l", VIEW_ID_EMOTION_SHOP
+        );
+    }
+
+    private void hookDoutuPageCleanup(ClassLoader classLoader) {
+        installDoutuTabBarHook(classLoader, "com.baidu.ck3", "i");
+        installDoutuTabBarHook(classLoader, "com.baidu.sb9", "g");
+    }
+
+    private void installDoutuTabBarHook(
+            ClassLoader classLoader,
+            String className,
+            String buildMethodName
+    ) {
+        safe("doutu page cleanup " + className, () -> {
+            Class<?> tabBarClass = findClass(classLoader, className);
+            Method buildTabs = findMethod(tabBarClass, buildMethodName, void.class, Context.class);
+            Field tabsField = findField(tabBarClass, "f", TextView[].class);
+            hook(buildTabs)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        Object value = tabsField.get(chain.getThisObject());
+                        if (value instanceof TextView[]) {
+                            TextView[] tabs = (TextView[]) value;
+                            for (int tabType : EMOTION_TYPE_DOUTU) {
+                                if (tabs.length > tabType && tabs[tabType] != null) {
+                                    registerDoutuTab(tabs[tabType]);
+                                }
+                            }
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void registerVisibleDoutuTabs(View root) {
+        if (root instanceof TextView && "\u6597\u56fe".contentEquals(((TextView) root).getText())) {
+            registerDoutuTab((TextView) root);
+            return;
+        }
+        if (!(root instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup group = (ViewGroup) root;
+        for (int index = 0; index < group.getChildCount(); index++) {
+            registerVisibleDoutuTabs(group.getChildAt(index));
+        }
+    }
+
+    private void registerDoutuTab(TextView doutuTab) {
+        if (doutuTab == null) {
+            return;
+        }
+        synchronized (doutuTabs) {
+            if (!doutuTabs.containsKey(doutuTab)) {
+                doutuTabs.put(doutuTab, DoutuTabState.capture(doutuTab));
+            }
+        }
+        synchronizeDoutuTabs();
+    }
+
+    private void synchronizeDoutuTabs() {
+        Handler handler = new Handler(Looper.getMainLooper());
+        if (!handler.post(() -> {
+            boolean hide = enabled(HookFeature.EMOTION_SHOP_CLEANUP);
+            synchronized (doutuTabs) {
+                Iterator<Map.Entry<TextView, DoutuTabState>> iterator =
+                        doutuTabs.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    Map.Entry<TextView, DoutuTabState> entry = iterator.next();
+                    if (entry.getKey() == null || entry.getValue() == null) {
+                        iterator.remove();
+                    } else {
+                        entry.getValue().apply(hide);
+                    }
+                }
+            }
+        })) {
+            logMessage("failed to schedule doutu tab sync");
+        }
+    }
+
+    private void hookAiWriterEntryCleanup(ClassLoader classLoader) {
+        safe("ai writer entry cleanup", () -> {
+            Class<?> repositoryClass = findClass(
+                    classLoader,
+                    "com.baidu.input.ime.cand.repository.AiIconRepository"
+            );
+            Method isAvailable = findMethod(repositoryClass, "a", boolean.class);
+            installConstantHook(isAvailable, HookFeature.HIDE_AI_WRITER, false);
+        });
+    }
+
+    private void installEmotionStoreEntryHook(
+            ClassLoader classLoader,
+            String className,
+            String createMethodName,
+            String rootFieldName,
+            String entryFieldName,
+            int storeViewId
+    ) {
+        safe("emotion store entry " + className, () -> {
+            Class<?> panelClass = findClass(classLoader, className);
+            Method createMethod = findMethod(panelClass, createMethodName, void.class);
+            Field rootField = findField(panelClass, rootFieldName);
+            Field entryField = entryFieldName == null ? null : findField(panelClass, entryFieldName);
+            hook(createMethod)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        Object root = rootField.get(chain.getThisObject());
+                        if (root instanceof View) {
+                            Object entry = entryField == null ? null : entryField.get(chain.getThisObject());
+                            registerEmotionStoreEntry(
+                                    (View) root,
+                                    entry instanceof View ? (View) entry : null,
+                                    storeViewId
+                            );
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    private void registerEmotionStoreEntry(View root, View entry, int storeViewId) {
+        View candidate = entry != null ? entry : root.findViewById(storeViewId);
+        if (candidate == null) {
+            return;
+        }
+        root.post(() -> {
+            synchronized (emotionStoreEntries) {
+                if (!emotionStoreEntries.containsKey(candidate)) {
+                    emotionStoreEntries.put(candidate, EmotionStoreEntryState.capture(root, candidate));
+                    logMessage("emotion store entry registered: "
+                            + candidate.getClass().getName() + "/0x"
+                            + Integer.toHexString(candidate.getId()));
+                }
+            }
+            synchronizeEmotionStoreEntries();
+        });
+    }
+
+    private void synchronizeEmotionStoreEntries() {
+        Handler handler = new Handler(Looper.getMainLooper());
+        if (!handler.post(() -> {
+            boolean hide = enabled(HookFeature.EMOTION_SHOP_CLEANUP);
+            synchronized (emotionStoreEntries) {
+                Iterator<Map.Entry<View, EmotionStoreEntryState>> iterator =
+                        emotionStoreEntries.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    Map.Entry<View, EmotionStoreEntryState> entry = iterator.next();
+                    EmotionStoreEntryState state = entry.getValue();
+                    if (entry.getKey() == null || state == null) {
+                        iterator.remove();
+                    } else {
+                        state.apply(hide);
+                    }
+                }
+            }
+        })) {
+            logMessage("failed to schedule emotion store entry sync");
+        }
+    }
+
+    private void hookKeyboardLogoReplacement(ClassLoader classLoader) {
+        safe("custom keyboard logo pure-mode entry", () -> {
+            Method decodeResource = findMethod(
+                    BitmapFactory.class,
+                    "decodeResource",
+                    Bitmap.class,
+                    android.content.res.Resources.class,
+                    int.class
+            );
+            hook(decodeResource)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Bitmap original = (Bitmap) chain.proceed();
+                        Object resourceId = chain.getArg(1);
+                        if (!enabled(HookFeature.CUSTOM_KEYBOARD_LOGO)
+                                || !(resourceId instanceof Integer)
+                                || (((Integer) resourceId).intValue()
+                                != DRAWABLE_PURE_MODE_CAND_ICON_NORMAL
+                                && ((Integer) resourceId).intValue()
+                                != DRAWABLE_PURE_MODE_CAND_ICON_DARK)) {
+                            return original;
+                        }
+                        return replacementOrOriginal(original);
+                    });
+        });
+    }
+
+    private Bitmap replacementOrOriginal(Bitmap original) {
+        Bitmap replacement = loadCustomKeyboardLogo(
+                original == null ? 72 : original.getWidth(),
+                original == null ? 72 : original.getHeight()
+        );
+        if (replacement == null) {
+            logMessage("custom keyboard logo replacement skipped: resource unavailable");
+            return original;
+        }
+        return replacement;
+    }
+
+    private Bitmap loadCustomKeyboardLogo(int width, int height) {
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+        Bitmap cached = customKeyboardLogo;
+        if (cached != null && !cached.isRecycled()
+                && customKeyboardLogoWidth == width && customKeyboardLogoHeight == height) {
+            return cached;
+        }
+        synchronized (this) {
+            cached = customKeyboardLogo;
+            if (cached != null && !cached.isRecycled()
+                    && customKeyboardLogoWidth == width && customKeyboardLogoHeight == height) {
+                return cached;
+            }
+            try (JarFile moduleApk = new JarFile(getModuleApplicationInfo().sourceDir)) {
+                JarEntry entry = findModuleResourceEntry(moduleApk, "miku_keyboard_emoji.png");
+                if (entry == null) {
+                    logMessage("custom keyboard logo resource missing");
+                    return null;
+                }
+                try (InputStream stream = moduleApk.getInputStream(entry)) {
+                    Bitmap source = BitmapFactory.decodeStream(stream);
+                    if (source == null) {
+                        return null;
+                    }
+                    customKeyboardLogo = Bitmap.createScaledBitmap(source, width, height, true);
+                    customKeyboardLogoWidth = width;
+                    customKeyboardLogoHeight = height;
+                    if (source != customKeyboardLogo) {
+                        source.recycle();
+                    }
+                    return customKeyboardLogo;
+                }
+            } catch (Throwable t) {
+                logMessage("failed to load custom keyboard logo: " + t);
+                return null;
+            }
+        }
+    }
+
+    private static JarEntry findModuleResourceEntry(JarFile moduleApk, String fileName) {
+        java.util.Enumeration<JarEntry> entries = moduleApk.entries();
+        while (entries.hasMoreElements()) {
+            JarEntry entry = entries.nextElement();
+            if (entry.getName().endsWith('/' + fileName)) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
     private void hookMyCenterDynamicPage(ClassLoader classLoader) {
         safe("my-center dynamic page", () -> {
             Class<?> dynamicViewModelClass = findClass(
@@ -2900,6 +3279,243 @@ public final class HookEntry extends XposedModule {
 
     private interface HookInstaller {
         void install() throws Throwable;
+    }
+
+    /** Removes the complete Doutu tab cell so the remaining weighted tabs fill the bar. */
+    private static final class DoutuTabState {
+        private final View tabCell;
+        private final LinearLayout parent;
+        private final int index;
+        private final ViewGroup.LayoutParams layoutParams;
+        private final int visibility;
+
+        private DoutuTabState(
+                View tabCell,
+                LinearLayout parent,
+                int index,
+                ViewGroup.LayoutParams layoutParams,
+                int visibility
+        ) {
+            this.tabCell = tabCell;
+            this.parent = parent;
+            this.index = index;
+            this.layoutParams = layoutParams;
+            this.visibility = visibility;
+        }
+
+        static DoutuTabState capture(TextView tab) {
+            View tabCell = tab;
+            ViewParent parentObject = tabCell.getParent();
+            while (parentObject instanceof ViewGroup && !(parentObject instanceof LinearLayout)) {
+                tabCell = (View) parentObject;
+                parentObject = tabCell.getParent();
+            }
+            if (!(parentObject instanceof LinearLayout)) {
+                return new DoutuTabState(
+                        tabCell, null, -1, tabCell.getLayoutParams(), tabCell.getVisibility()
+                );
+            }
+            LinearLayout parent = (LinearLayout) parentObject;
+            return new DoutuTabState(
+                    tabCell,
+                    parent,
+                    parent.indexOfChild(tabCell),
+                    tabCell.getLayoutParams(),
+                    tabCell.getVisibility()
+            );
+        }
+
+        void apply(boolean hide) {
+            if (parent == null) {
+                tabCell.setVisibility(hide ? View.GONE : visibility);
+                return;
+            }
+            if (hide) {
+                // sb9 validates a page type against getChildCount(). Removing a tab makes
+                // type 6 (我的) unreachable; GONE preserves that contract while weighted
+                // visible siblings still occupy the complete bar.
+                tabCell.setVisibility(View.GONE);
+            } else {
+                if (tabCell.getParent() == null) {
+                    parent.addView(tabCell, Math.min(index, parent.getChildCount()), layoutParams);
+                }
+                tabCell.setVisibility(visibility);
+            }
+            parent.requestLayout();
+        }
+    }
+
+    /** Restores every layout value changed while the emotion-store entry is hidden. */
+    private static final class EmotionStoreEntryState {
+        private static final int LEFT_OF = 0;
+        private static final int RIGHT_OF = 1;
+        private static final int ALIGN_PARENT_LEFT = 9;
+
+        private final View root;
+        private final View entry;
+        private final ViewGroup parent;
+        private final int entryVisibility;
+        private final int entryIndex;
+        private final ViewGroup.LayoutParams entryLayoutParams;
+        private final List<RelativeChildState> affectedChildren;
+
+        private EmotionStoreEntryState(
+                View root,
+                View entry,
+                ViewGroup parent,
+                int entryVisibility,
+                int entryIndex,
+                ViewGroup.LayoutParams entryLayoutParams,
+                List<RelativeChildState> affectedChildren
+        ) {
+            this.root = root;
+            this.entry = entry;
+            this.parent = parent;
+            this.entryVisibility = entryVisibility;
+            this.entryIndex = entryIndex;
+            this.entryLayoutParams = entryLayoutParams;
+            this.affectedChildren = affectedChildren;
+        }
+
+        static EmotionStoreEntryState capture(View root, View entry) {
+            ViewParent parentObject = entry.getParent();
+            ViewGroup parent = parentObject instanceof ViewGroup ? (ViewGroup) parentObject : null;
+            List<RelativeChildState> children = new ArrayList<>();
+            int entryWidth = entry.getLayoutParams() == null ? 0 : entry.getLayoutParams().width;
+            boolean entryStartsAtLeft = false;
+            if (entry.getLayoutParams() instanceof RelativeLayout.LayoutParams) {
+                int[] entryRules = ((RelativeLayout.LayoutParams) entry.getLayoutParams()).getRules();
+                entryStartsAtLeft = entryRules[ALIGN_PARENT_LEFT] != 0;
+            }
+            if (parent instanceof RelativeLayout) {
+                for (int index = 0; index < parent.getChildCount(); index++) {
+                    View child = parent.getChildAt(index);
+                    if (child == entry || !(child.getLayoutParams() instanceof RelativeLayout.LayoutParams)) {
+                        continue;
+                    }
+                    RelativeLayout.LayoutParams params =
+                            (RelativeLayout.LayoutParams) child.getLayoutParams();
+                    int[] rules = params.getRules();
+                    boolean leftOfEntry = rules[LEFT_OF] == entry.getId();
+                    boolean rightOfEntry = rules[RIGHT_OF] == entry.getId();
+                    boolean contentInset = entryStartsAtLeft
+                            && params.width == ViewGroup.LayoutParams.MATCH_PARENT
+                            && entryWidth > 0
+                            && params.leftMargin >= entryWidth;
+                    boolean divider = entryStartsAtLeft
+                            && params.width > 0
+                            && params.width <= 2
+                            && entryWidth > 0
+                            && params.leftMargin == entryWidth;
+                    if (leftOfEntry || rightOfEntry || contentInset || divider) {
+                        children.add(new RelativeChildState(
+                                child,
+                                leftOfEntry,
+                                rightOfEntry,
+                                contentInset || rightOfEntry,
+                                divider
+                        ));
+                    }
+                }
+            }
+            return new EmotionStoreEntryState(
+                    root,
+                    entry,
+                    parent,
+                    entry.getVisibility(),
+                    parent == null ? -1 : parent.indexOfChild(entry),
+                    entry.getLayoutParams(),
+                    children
+            );
+        }
+
+        void apply(boolean hide) {
+            if (parent instanceof LinearLayout) {
+                applyLinearLayout(hide);
+                return;
+            }
+            entry.setVisibility(hide ? View.GONE : entryVisibility);
+            for (RelativeChildState child : affectedChildren) {
+                child.apply(hide, entryLayoutParams == null ? 0 : entryLayoutParams.width);
+            }
+            root.requestLayout();
+        }
+
+        private void applyLinearLayout(boolean hide) {
+            if (hide) {
+                if (entry.getParent() == parent) {
+                    parent.removeView(entry);
+                }
+            } else if (entry.getParent() == null) {
+                parent.addView(entry, Math.min(entryIndex, parent.getChildCount()), entryLayoutParams);
+                entry.setVisibility(entryVisibility);
+            }
+            root.requestLayout();
+        }
+    }
+
+    private static final class RelativeChildState {
+        private final View child;
+        private final boolean leftOfEntry;
+        private final boolean rightOfEntry;
+        private final boolean reduceLeftMargin;
+        private final boolean hideDivider;
+        private final int visibility;
+        private final int[] rules;
+        private final int leftMargin;
+        private final int topMargin;
+        private final int rightMargin;
+        private final int bottomMargin;
+
+        private RelativeChildState(
+                View child,
+                boolean leftOfEntry,
+                boolean rightOfEntry,
+                boolean reduceLeftMargin,
+                boolean hideDivider
+        ) {
+            this.child = child;
+            this.leftOfEntry = leftOfEntry;
+            this.rightOfEntry = rightOfEntry;
+            this.reduceLeftMargin = reduceLeftMargin;
+            this.hideDivider = hideDivider;
+            this.visibility = child.getVisibility();
+            RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) child.getLayoutParams();
+            this.rules = params.getRules().clone();
+            this.leftMargin = params.leftMargin;
+            this.topMargin = params.topMargin;
+            this.rightMargin = params.rightMargin;
+            this.bottomMargin = params.bottomMargin;
+        }
+
+        void apply(boolean hide, int entryWidth) {
+            RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) child.getLayoutParams();
+            if (hide) {
+                if (leftOfEntry) {
+                    params.removeRule(EmotionStoreEntryState.LEFT_OF);
+                }
+                if (rightOfEntry) {
+                    params.removeRule(EmotionStoreEntryState.RIGHT_OF);
+                }
+                if (reduceLeftMargin && entryWidth > 0) {
+                    params.leftMargin = Math.max(0, leftMargin - entryWidth);
+                }
+                child.setVisibility(hideDivider ? View.GONE : visibility);
+            } else {
+                for (int rule = 0; rule < rules.length; rule++) {
+                    params.removeRule(rule);
+                    if (rules[rule] != 0) {
+                        params.addRule(rule, rules[rule]);
+                    }
+                }
+                params.leftMargin = leftMargin;
+                params.topMargin = topMargin;
+                params.rightMargin = rightMargin;
+                params.bottomMargin = bottomMargin;
+                child.setVisibility(visibility);
+            }
+            child.setLayoutParams(params);
+        }
     }
 
     private static final class ShopTabState {

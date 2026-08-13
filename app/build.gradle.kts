@@ -49,8 +49,8 @@ android {
         applicationId = "com.fuckbaiduinput"
         minSdk = 27
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.7.0"
+        versionCode = 12
+        versionName = "0.8.0"
     }
 
     buildTypes {

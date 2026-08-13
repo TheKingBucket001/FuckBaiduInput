@@ -22,7 +22,7 @@
 - 广告与推广：广告 SDK、商店推广、活动推荐
 - 隐私与后台：统计上传、问题反馈、后台更新检查
 - 皮肤与商店：在线皮肤、表情、字体、远程升级与设置入口
-- 界面与工具箱：搜索、机械键盘、字体设置
+- 界面与工具箱：搜索、机械键盘、字体设置、AI 写作入口、纯净模式左上角 Emoji 图标
 
 每个分类均提供“本组全部启用”开关；配置会通过受限 Provider 和 libxposed RemotePreferences 同步给 Hook 进程。
 
@@ -80,9 +80,9 @@ RELEASE_KEY_ALIAS
 RELEASE_KEY_PASSWORD
 ```
 
-tag 必须与 APK 版本严格一致，例如 `v0.7.0` 对应 `versionName = 0.7.0`。发行文件命名为 `FuckBaiduInput-v0.7.0.apk`。升级安装必须使用相同正式证书签名的 APK。
+tag 必须与 APK 版本严格一致，例如 `v0.8.0` 对应 `versionName = 0.8.0`。发行文件命名为 `FuckBaiduInput-v0.8.0.apk`。升级安装必须使用相同正式证书签名的 APK。
 
-详细变更见 [v0.7.0 更新说明](.github/release-notes/v0.7.0.md)。
+当前发布版本为 `0.8.0 / 12`。历史 `v0.7.0` 发行说明见 [.github/release-notes/v0.7.0.md](.github/release-notes/v0.7.0.md)。本地研究与测试记录见 [项目研究档案](../项目研究档案.md) 和 [真机 Hook 测试手册](../真机Hook测试手册.md)。
 
 ## 许可证
 

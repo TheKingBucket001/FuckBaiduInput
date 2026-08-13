@@ -87,7 +87,9 @@ final class HostSettingsUi {
     private static final HookFeature[] UI_TOOLS_FEATURES = {
             HookFeature.HIDE_SEARCH,
             HookFeature.HIDE_MECHANICAL_KEYBOARD,
-            HookFeature.HIDE_FONT_SETTING
+            HookFeature.HIDE_FONT_SETTING,
+            HookFeature.HIDE_AI_WRITER,
+            HookFeature.CUSTOM_KEYBOARD_LOGO
     };
 
     interface FeatureAccess {
@@ -496,6 +498,7 @@ final class HostSettingsUi {
     private void buildHiddenPage(Activity activity, Object screen)
             throws ReflectiveOperationException {
         Object category = newCategory(activity);
+        applyFirstCategoryStyle(category);
         setTitleMethod.invoke(category, "\u5df2\u9a8c\u8bc1\u9875\u9762");
         add(screen, category);
 
@@ -753,6 +756,10 @@ final class HostSettingsUi {
                 return "\u9690\u85cf\u673a\u68b0\u952e\u76d8";
             case HIDE_FONT_SETTING:
                 return "\u9690\u85cf\u5b57\u4f53\u8bbe\u7f6e";
+            case HIDE_AI_WRITER:
+                return "\u9690\u85cf AI \u5199\u4f5c\u5165\u53e3";
+            case CUSTOM_KEYBOARD_LOGO:
+                return "\u66ff\u6362\u7eaf\u51c0\u6a21\u5f0f\u5de6\u4e0a\u89d2\u56fe\u6807";
             default:
                 throw new IllegalArgumentException("unknown feature");
         }
@@ -772,6 +779,8 @@ final class HostSettingsUi {
             case REMOTE_SKIN_UPGRADE:
             case ACTIVITY_RECOMMENDATION:
                 return "\u9700\u91cd\u542f\u8f93\u5165\u6cd5\u540e\u5b8c\u6574\u751f\u6548";
+            case CUSTOM_KEYBOARD_LOGO:
+                return "\u4ee5\u521d\u97f3\u672a\u6765 Emoji \u56fe\u6807\u66ff\u6362\u7eaf\u51c0\u6a21\u5f0f\u5165\u53e3\uff0c\u5173\u95ed\u540e\u6062\u590d\u5bbf\u4e3b\u56fe\u6807";
             default:
                 return null;
         }
