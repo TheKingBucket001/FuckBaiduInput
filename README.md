@@ -1,6 +1,10 @@
 <div align="center">
 
-<img src="assets/readme/hero.png" width="100%" alt="FuckBaiduInput 项目图标与项目名称" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/hero-dark.png" />
+  <source media="(prefers-color-scheme: light)" srcset="assets/readme/hero.png" />
+  <img src="assets/readme/hero.png" width="100%" alt="FuckBaiduInput：面向 OPPO 定制版百度输入法的 LSPosed 模块" />
+</picture>
 
 # FuckBaiduInput
 
@@ -70,15 +74,11 @@ FuckBaiduInput 将可选的本地 Hook 控制项嵌入 OPPO 定制版百度输�
 - Hook 仅覆盖已验证的 Java 路径，不承诺覆盖 JNI、动态加载或服务端行为。
 - 模块不声明 `INTERNET` 权限，也不创建常驻 Service、Receiver、Job 或定时任务。
 
-## 本地构建
+## 反馈与贡献
 
-要求：JDK 17、Android SDK Platform 36、Build Tools 36.0.0。
-
-```powershell
-.\gradlew.bat :app:assembleDebug :app:lintDebug
-```
-
-正式发布必须使用 SSH 签名创建 Tag（`git tag -s`）。GitHub Actions 在构建与发布前核对远端 Tag 的 `verification.verified=true`、SSH 签名和目标提交；验证未通过时停止发行。
+- 使用问题、兼容性和界面反馈，请提交至 [Issues](https://github.com/TheKingBucket001/FuckBaiduInput/issues)。
+- 涉及隐私、越权访问或安全漏洞，请先阅读 [安全策略](SECURITY.md)，避免公开敏感数据或漏洞细节。
+- 参与代码、文档或图片改进，请阅读 [贡献指南](CONTRIBUTING.md)，了解本地检查、真机验证和提交要求。
 
 ## 项目链接
 
