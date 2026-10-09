@@ -23,6 +23,7 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import java.io.InputStream;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -109,6 +110,10 @@ public final class HookEntry extends XposedModule {
     private static final int VIEW_ID_LINE_HELP = 0x7f0a07ab;
     private static final int VIEW_ID_MEMBER_BANNER = 0x7f0a0905;
     private static final int VIEW_ID_SKIN_SHARE_LAYOUT = 0x7f0a0d76;
+    // Keyed tags accept package IDs >= 0x02. Host/module resources use 0x7f;
+    // these private 0x7e keys do not share their resource namespace or the 0x01 framework IDs.
+    private static final int TAG_EMOTION_STORE_STATES = 0x7e464201;
+    private static final int TAG_DOUTU_TAB_STATES = 0x7e464202;
     private static final int DRAWABLE_PURE_MODE_CAND_ICON_DARK = 0x7f080dd1;
     private static final int DRAWABLE_PURE_MODE_CAND_ICON_NORMAL = 0x7f080dd2;
     private static final String HIDDEN_LOCAL_SKIN_NAME = "\u8b66\u6212\u7ebf";
@@ -152,9 +157,10 @@ public final class HookEntry extends XposedModule {
             Collections.synchronizedMap(new WeakHashMap<>());
     /* The emotion panel is retained by the host, so configuration changes must
      * update an already-created shop entry instead of waiting for panel rebuild. */
-    private final Map<View, EmotionStoreEntryState> emotionStoreEntries =
+    // The view tree owns restoration state; this index must not retain it or its weak keys.
+    private final Map<View, WeakReference<EmotionStoreEntryState>> emotionStoreEntries =
             Collections.synchronizedMap(new WeakHashMap<>());
-    private final Map<TextView, DoutuTabState> doutuTabs =
+    private final Map<TextView, WeakReference<DoutuTabState>> doutuTabs =
             Collections.synchronizedMap(new WeakHashMap<>());
     private volatile Bitmap customKeyboardLogo;
     private volatile int customKeyboardLogoWidth;
@@ -176,6 +182,7 @@ public final class HookEntry extends XposedModule {
         }
         initializeFeatureSnapshot();
         initializeHostSettingsUi(classLoader);
+        hookHostLifecycleReadiness(classLoader);
         HookTargets targets = findMatchingTargets(classLoader);
         if (targets == null) {
             logMessage("no matching hook profile in " + param.getPackageName());
@@ -2370,6 +2377,31 @@ public final class HookEntry extends XposedModule {
         installEmotionStoreEntryHook(
                 classLoader, "com.baidu.xh9", "h0", "d", "l", VIEW_ID_EMOTION_SHOP
         );
+        safe("emotion store asynchronous content cleanup", () -> {
+            Class<?> panelClass = findClass(classLoader, "com.baidu.xh9");
+            Field rootField = findField(panelClass, "d", android.widget.RelativeLayout.class);
+            for (String methodName : new String[] { "showContentView", "showLoadingView" }) {
+                Method updateContent = findMethod(panelClass, methodName, void.class);
+                hook(updateContent)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        View root = (View) rootField.get(chain.getThisObject());
+                        View entry = root == null ? null : root.findViewById(VIEW_ID_EMOTION_SHOP);
+                        synchronized (emotionStoreEntries) {
+                            WeakReference<EmotionStoreEntryState> reference = emotionStoreEntries.get(entry);
+                            EmotionStoreEntryState state = reference == null ? null : reference.get();
+                            if (state != null) {
+                                state.captureHostVisibility();
+                                if (enabled(HookFeature.EMOTION_SHOP_CLEANUP)) {
+                                    state.apply(true);
+                                }
+                            }
+                        }
+                        return result;
+                    });
+            }
+        });
     }
 
     private void hookDoutuPageCleanup(ClassLoader classLoader) {
@@ -2423,11 +2455,48 @@ public final class HookEntry extends XposedModule {
             return;
         }
         synchronized (doutuTabs) {
-            if (!doutuTabs.containsKey(doutuTab)) {
-                doutuTabs.put(doutuTab, DoutuTabState.capture(doutuTab));
+            WeakReference<DoutuTabState> reference = doutuTabs.get(doutuTab);
+            DoutuTabState state = reference == null ? null : reference.get();
+            if (state == null) {
+                state = DoutuTabState.capture(doutuTab);
+                View owner = state.parent == null ? state.tabCell : state.parent;
+                List<DoutuTabState> ownedStates = viewOwnedStates(
+                        owner, TAG_DOUTU_TAB_STATES, DoutuTabState.class);
+                if (ownedStates == null) {
+                    return;
+                }
+                for (DoutuTabState ownedState : ownedStates) {
+                    if (ownedState.tabCell == state.tabCell) {
+                        state = ownedState;
+                        break;
+                    }
+                }
+                if (!ownedStates.contains(state)) {
+                    ownedStates.add(state);
+                }
+                doutuTabs.put(doutuTab, new WeakReference<>(state));
             }
         }
         synchronizeDoutuTabs();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> List<T> viewOwnedStates(View owner, int tagKey, Class<T> stateClass) {
+        Object tag = owner.getTag(tagKey);
+        if (tag == null) {
+            List<T> states = new ArrayList<>();
+            owner.setTag(tagKey, states);
+            return states;
+        }
+        if (!(tag instanceof List<?>)) {
+            return null;
+        }
+        for (Object state : (List<?>) tag) {
+            if (!stateClass.isInstance(state)) {
+                return null;
+            }
+        }
+        return (List<T>) tag;
     }
 
     private void synchronizeDoutuTabs() {
@@ -2435,14 +2504,16 @@ public final class HookEntry extends XposedModule {
         if (!handler.post(() -> {
             boolean hide = enabled(HookFeature.EMOTION_SHOP_CLEANUP);
             synchronized (doutuTabs) {
-                Iterator<Map.Entry<TextView, DoutuTabState>> iterator =
+                Iterator<Map.Entry<TextView, WeakReference<DoutuTabState>>> iterator =
                         doutuTabs.entrySet().iterator();
                 while (iterator.hasNext()) {
-                    Map.Entry<TextView, DoutuTabState> entry = iterator.next();
-                    if (entry.getKey() == null || entry.getValue() == null) {
+                    Map.Entry<TextView, WeakReference<DoutuTabState>> entry = iterator.next();
+                    WeakReference<DoutuTabState> reference = entry.getValue();
+                    DoutuTabState state = reference == null ? null : reference.get();
+                    if (entry.getKey() == null || state == null) {
                         iterator.remove();
                     } else {
-                        entry.getValue().apply(hide);
+                        state.apply(hide);
                     }
                 }
             }
@@ -2500,11 +2571,26 @@ public final class HookEntry extends XposedModule {
         }
         root.post(() -> {
             synchronized (emotionStoreEntries) {
-                if (!emotionStoreEntries.containsKey(candidate)) {
-                    emotionStoreEntries.put(candidate, EmotionStoreEntryState.capture(root, candidate));
-                    logMessage("emotion store entry registered: "
-                            + candidate.getClass().getName() + "/0x"
-                            + Integer.toHexString(candidate.getId()));
+                WeakReference<EmotionStoreEntryState> reference = emotionStoreEntries.get(candidate);
+                EmotionStoreEntryState state = reference == null ? null : reference.get();
+                if (state == null) {
+                    List<EmotionStoreEntryState> ownedStates = viewOwnedStates(
+                            root, TAG_EMOTION_STORE_STATES, EmotionStoreEntryState.class);
+                    if (ownedStates == null) {
+                        return;
+                    }
+                    for (EmotionStoreEntryState ownedState : ownedStates) {
+                        if (ownedState.entry == candidate) {
+                            state = ownedState;
+                            break;
+                        }
+                    }
+                    if (state == null) {
+                        state = EmotionStoreEntryState.capture(root, candidate);
+                        // LinearLayout removal must keep its entry restorable while root is alive.
+                        ownedStates.add(state);
+                    }
+                    emotionStoreEntries.put(candidate, new WeakReference<>(state));
                 }
             }
             synchronizeEmotionStoreEntries();
@@ -2516,11 +2602,12 @@ public final class HookEntry extends XposedModule {
         if (!handler.post(() -> {
             boolean hide = enabled(HookFeature.EMOTION_SHOP_CLEANUP);
             synchronized (emotionStoreEntries) {
-                Iterator<Map.Entry<View, EmotionStoreEntryState>> iterator =
+                Iterator<Map.Entry<View, WeakReference<EmotionStoreEntryState>>> iterator =
                         emotionStoreEntries.entrySet().iterator();
                 while (iterator.hasNext()) {
-                    Map.Entry<View, EmotionStoreEntryState> entry = iterator.next();
-                    EmotionStoreEntryState state = entry.getValue();
+                    Map.Entry<View, WeakReference<EmotionStoreEntryState>> entry = iterator.next();
+                    WeakReference<EmotionStoreEntryState> reference = entry.getValue();
+                    EmotionStoreEntryState state = reference == null ? null : reference.get();
                     if (entry.getKey() == null || state == null) {
                         iterator.remove();
                     } else {
@@ -2939,13 +3026,42 @@ public final class HookEntry extends XposedModule {
         installConstantHook(directPassportInit, HookFeature.ACCOUNT_ISOLATION, null);
     }
 
+    private void hookHostLifecycleReadiness(ClassLoader classLoader) {
+        safe("host lifecycle readiness guard", () -> {
+            Class<?> lifecycleClass = findClass(classLoader, "com.baidu.dt6");
+            Class<?> registryClass = findClass(classLoader, "com.baidu.dv1");
+            Class<?> moduleClass = findClass(classLoader, "com.baidu.yi6");
+            Class<?> observerClass = findClass(classLoader, "com.baidu.wa6");
+            Class<?> queriedModuleClass = findClass(classLoader, "com.baidu.no5");
+            Field modulesField = findField(registryClass, "a", HashMap.class);
+            Field observerField = findField(moduleClass, "d", observerClass);
+            Method isReady = findMethod(lifecycleClass, "a", boolean.class, Class.class);
+            hook(isReady)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (chain.getArg(0) == queriedModuleClass) {
+                            // Readiness may be queried before ImeService binds its observer.
+                            synchronized (registryClass) {
+                                Object modules = modulesField.get(null);
+                                Object module = modules instanceof Map<?, ?>
+                                        ? ((Map<?, ?>) modules).get(queriedModuleClass) : null;
+                                if (module == null || observerField.get(module) == null) {
+                                    return false;
+                                }
+                            }
+                        }
+                        return chain.proceed();
+                    });
+        });
+    }
+
     private void hookBackgroundUpdateCheck(ClassLoader classLoader) {
         safe("background update check", () -> {
             Class<?> updateAgentClass = findClass(classLoader, "com.baidu.u87");
             Class<?> updateCallbackClass = findClass(classLoader, "com.baidu.i87");
             Class<?> settingsUpdateCallbackClass = findClass(classLoader, "com.baidu.y6b$a");
+            Class<?> keyboardUpdateCallbackClass = findClass(classLoader, "com.baidu.ng9$c");
             Field callbackField = findField(updateAgentClass, "a", updateCallbackClass);
-            Field thresholdField = findField(updateAgentClass, "e", int.class);
             Method startCheckMethod = findMethod(updateAgentClass, "S", void.class);
             Method reportResultMethod = findMethod(
                     updateCallbackClass,
@@ -2964,13 +3080,121 @@ public final class HookEntry extends XposedModule {
                         }
                         Object agent = chain.getThisObject();
                         Object callback = callbackField.get(agent);
-                        if (thresholdField.getInt(agent) != Integer.MAX_VALUE
-                                || !settingsUpdateCallbackClass.isInstance(callback)) {
+                        if (!settingsUpdateCallbackClass.isInstance(callback)
+                                && !keyboardUpdateCallbackClass.isInstance(callback)) {
                             return chain.proceed();
                         }
 
                         invokeCallback(reportResultMethod, callback, 0, HOST_VERSION_CODE, false);
                         return null;
+                    });
+        });
+
+        safe("keyboard automatic update result guard", () -> {
+            Class<?> keyboardControllerClass = findClass(classLoader, "com.baidu.tg6");
+            Method updateResult = findMethod(
+                    keyboardControllerClass, "u", void.class, int.class, boolean.class);
+            // An already-running check can finish after the user enables the switch.
+            installConstantHook(updateResult, HookFeature.BACKGROUND_UPDATE_CHECK, null);
+        });
+
+        safe("keyboard automatic update request guard", () -> {
+            Class<?> checkerClass = findClass(classLoader, "com.baidu.ng9");
+            Method checkUpdate = findMethod(checkerClass, "b", void.class, boolean.class);
+            installConstantHook(checkUpdate, HookFeature.BACKGROUND_UPDATE_CHECK, null);
+        });
+
+        safe("automatic SAU update dialog guard", () -> {
+            Class<?> agentClass = findClass(classLoader, "com.baidu.u87");
+            Class<?> callbackClass = findClass(classLoader, "com.baidu.i87");
+            Class<?> dialogClass = findClass(classLoader, "com.baidu.r87");
+            Class<?> keyboardCallbackClass = findClass(classLoader, "com.baidu.ng9$c");
+            Class<?> settingsCallbackClass = findClass(classLoader, "com.baidu.y6b$a");
+            Method buildDialog = findMethod(agentClass, "d", dialogClass, callbackClass, int.class);
+            hook(buildDialog)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object callback = chain.getArg(0);
+                        if (enabled(HookFeature.BACKGROUND_UPDATE_CHECK)
+                                && (keyboardCallbackClass.isInstance(callback)
+                                || settingsCallbackClass.isInstance(callback))) {
+                            return null;
+                        }
+                        return chain.proceed();
+                    });
+        });
+
+        safe("background soft update notification guard", () -> {
+            Class<?> handlerClass = findClass(classLoader, "com.baidu.fz8");
+            Class<?> notificationClass = findClass(classLoader, "com.baidu.jz8");
+            Field kindField = findField(notificationClass, "c", int.class);
+            Method handleNotification = findMethod(handlerClass, "h", void.class, notificationClass);
+            hook(handleNotification)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object notification = chain.getArg(0);
+                        if (enabled(HookFeature.BACKGROUND_UPDATE_CHECK)
+                                && notification != null && kindField.getInt(notification) == 16) {
+                            return null;
+                        }
+                        return chain.proceed();
+                    });
+        });
+
+        safe("cached soft update dialog guard", () -> {
+            Class<?> keyboardClass = findClass(classLoader, "com.baidu.ry6");
+            Method showUpdate = findMethod(keyboardClass, "F", boolean.class);
+            installConstantHook(showUpdate, HookFeature.BACKGROUND_UPDATE_CHECK, false);
+        });
+
+        safe("forced soft update entry guard", () -> {
+            Class<?> updateClass = findClass(classLoader, "com.baidu.ob4");
+            Method isForcedUpdateDue = findMethod(updateClass, "f", boolean.class, Context.class);
+            installConstantHook(isForcedUpdateDue, HookFeature.BACKGROUND_UPDATE_CHECK, false);
+        });
+
+        safe("manual update preference", () -> {
+            Class<?> versionPreferenceClass = findClass(
+                    classLoader, "com.baidu.input.pref.OppoVerPref");
+            Class<?> updateAgentClass = findClass(classLoader, "com.baidu.xeb");
+            Class<?> preferenceClass = findClass(classLoader, "androidx.preference.Preference");
+            Class<?> couiPreferenceClass = findClass(
+                    classLoader, "com.coui.appcompat.preference.COUIPreference");
+            Field agentField = findField(versionPreferenceClass, "F0", updateAgentClass);
+            Method getContext = findMethod(preferenceClass, "I", Context.class);
+            Method createAgent = findMethod(versionPreferenceClass, "C1", void.class, Context.class);
+            Method startCheck = findMethod(
+                    findClass(classLoader, "com.baidu.u87"), "S", void.class);
+            Method onClick = findMethod(versionPreferenceClass, "B0", void.class);
+            Method updateAssignment = findMethod(versionPreferenceClass, "D1", void.class, boolean.class);
+            Method setAssignment = findMethod(
+                    couiPreferenceClass, "w1", void.class, CharSequence.class);
+            hook(onClick)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (!enabled(HookFeature.BACKGROUND_UPDATE_CHECK)) {
+                            return chain.proceed();
+                        }
+                        Object preference = chain.getThisObject();
+                        Object agent = agentField.get(preference);
+                        if (agent == null) {
+                            createAgent.invoke(preference, getContext.invoke(preference));
+                            agent = agentField.get(preference);
+                        }
+                        // Manual checks must not depend on the suppressed automatic-update badge.
+                        startCheck.invoke(agent);
+                        return null;
+                    });
+            hook(updateAssignment)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (enabled(HookFeature.BACKGROUND_UPDATE_CHECK)
+                                && Boolean.FALSE.equals(chain.getArg(0))) {
+                            setAssignment.invoke(chain.getThisObject(),
+                                    "\u68c0\u67e5\u66f4\u65b0");
+                        }
+                        return result;
                     });
         });
     }
@@ -3361,7 +3585,7 @@ public final class HookEntry extends XposedModule {
         private final View root;
         private final View entry;
         private final ViewGroup parent;
-        private final int entryVisibility;
+        private int entryVisibility;
         private final int entryIndex;
         private final ViewGroup.LayoutParams entryLayoutParams;
         private final List<RelativeChildState> affectedChildren;
@@ -3436,6 +3660,14 @@ public final class HookEntry extends XposedModule {
             );
         }
 
+        void captureHostVisibility() {
+            // Call only after the host writes its current loading/content state.
+            entryVisibility = entry.getVisibility();
+            for (RelativeChildState child : affectedChildren) {
+                child.captureHostVisibility();
+            }
+        }
+
         void apply(boolean hide) {
             if (parent instanceof LinearLayout) {
                 applyLinearLayout(hide);
@@ -3467,7 +3699,7 @@ public final class HookEntry extends XposedModule {
         private final boolean rightOfEntry;
         private final boolean reduceLeftMargin;
         private final boolean hideDivider;
-        private final int visibility;
+        private int visibility;
         private final int[] rules;
         private final int leftMargin;
         private final int topMargin;
@@ -3495,6 +3727,12 @@ public final class HookEntry extends XposedModule {
             this.bottomMargin = params.bottomMargin;
         }
 
+        void captureHostVisibility() {
+            if (hideDivider) {
+                visibility = child.getVisibility();
+            }
+        }
+
         void apply(boolean hide, int entryWidth) {
             RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) child.getLayoutParams();
             if (hide) {
@@ -3507,7 +3745,6 @@ public final class HookEntry extends XposedModule {
                 if (reduceLeftMargin && entryWidth > 0) {
                     params.leftMargin = Math.max(0, leftMargin - entryWidth);
                 }
-                child.setVisibility(hideDivider ? View.GONE : visibility);
             } else {
                 for (int rule = 0; rule < rules.length; rule++) {
                     params.removeRule(rule);
@@ -3519,7 +3756,10 @@ public final class HookEntry extends XposedModule {
                 params.topMargin = topMargin;
                 params.rightMargin = rightMargin;
                 params.bottomMargin = bottomMargin;
-                child.setVisibility(visibility);
+            }
+            // The host owns loading/content visibility; only the divider is hidden here.
+            if (hideDivider) {
+                child.setVisibility(hide ? View.GONE : visibility);
             }
             child.setLayoutParams(params);
         }

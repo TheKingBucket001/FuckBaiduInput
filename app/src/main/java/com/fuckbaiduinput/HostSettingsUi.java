@@ -775,10 +775,12 @@ final class HostSettingsUi {
                         + "\u4e0d\u53ef\u7528\uff0c\u79bb\u7ebf\u76ae\u80a4\u4e0d\u53d7\u5f71\u54cd";
             case AD_SDK_BLOCK:
             case PRIVACY_TELEMETRY:
-            case BACKGROUND_UPDATE_CHECK:
             case REMOTE_SKIN_UPGRADE:
             case ACTIVITY_RECOMMENDATION:
                 return "\u9700\u91cd\u542f\u8f93\u5165\u6cd5\u540e\u5b8c\u6574\u751f\u6548";
+            case BACKGROUND_UPDATE_CHECK:
+                return "\u5173\u95ed\u542f\u52a8\u66f4\u65b0\u63d0\u793a\u4e0e\u540e\u53f0\u66f4\u65b0\uff0c"
+                        + "\u4fdd\u7559\u624b\u52a8\u68c0\u67e5\u66f4\u65b0\uff1b\u9700\u91cd\u542f\u8f93\u5165\u6cd5\u540e\u5b8c\u6574\u751f\u6548";
             case CUSTOM_KEYBOARD_LOGO:
                 return "\u4ee5\u521d\u97f3\u672a\u6765 Emoji \u56fe\u6807\u66ff\u6362\u7eaf\u51c0\u6a21\u5f0f\u5165\u53e3\uff0c\u5173\u95ed\u540e\u6062\u590d\u5bbf\u4e3b\u56fe\u6807";
             default:
