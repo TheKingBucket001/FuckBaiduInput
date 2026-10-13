@@ -49,8 +49,8 @@ android {
         applicationId = "com.fuckbaiduinput"
         minSdk = 27
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.8.2"
+        versionCode = 15
+        versionName = "0.8.3"
     }
 
     buildTypes {
@@ -80,6 +80,7 @@ android {
 }
 
 dependencies {
+    testImplementation(libs.junit)
     compileOnly(libs.libxposed.api)
     implementation(libs.libxposed.service) {
         // The service and interface artifacts contain no Kotlin runtime references.

@@ -21,8 +21,20 @@ final class TargetIdentityVerifier {
             return false;
         }
         try {
+            return isExpectedTarget(context, expectedUid,
+                    context.getPackageManager().getPackagesForUid(expectedUid));
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    static boolean isExpectedTarget(Context context, int expectedUid, String[] packages) {
+        if (context == null || expectedUid < 0) {
+            return false;
+        }
+        try {
             PackageManager packageManager = context.getPackageManager();
-            String[] packages = packageManager.getPackagesForUid(expectedUid);
             if (packages == null
                     || packages.length != 1
                     || !HookSettingsContract.TARGET_PACKAGE.equals(packages[0])) {

@@ -1,26 +1,19 @@
 package com.fuckbaiduinput;
 
 import android.content.SharedPreferences;
+import android.os.Bundle;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
 /** Immutable, fail-closed view of a RemotePreferences snapshot. */
 public final class FeatureSnapshot {
-    private static final FeatureSnapshot DISABLED = new FeatureSnapshot(
-            false, 0L, new boolean[HookFeature.values().length]);
+    private static final FeatureSnapshot DISABLED = new FeatureSnapshot(FeatureConfiguration.disabled());
+    private final FeatureConfiguration configuration;
 
-    private final boolean schemaValid;
-    private final long revision;
-    private final boolean[] enabled;
-
-    private FeatureSnapshot(boolean schemaValid, long revision, boolean[] enabled) {
-        this.schemaValid = schemaValid;
-        this.revision = revision;
-        this.enabled = enabled;
+    private FeatureSnapshot(FeatureConfiguration configuration) {
+        this.configuration = configuration;
     }
 
     public static FeatureSnapshot disabled() {
@@ -28,78 +21,67 @@ public final class FeatureSnapshot {
     }
 
     public static FeatureSnapshot from(SharedPreferences preferences) {
-        if (preferences == null) {
+        return preferences == null ? DISABLED : fromValues(preferences.getAll());
+    }
+
+    static FeatureSnapshot fromValues(Map<String, ?> values) {
+        return new FeatureSnapshot(FeatureConfiguration.from(values));
+    }
+
+    @SuppressWarnings("deprecation")
+    static FeatureSnapshot fromAcknowledgement(Bundle values) {
+        if (values == null || values.size() != HookFeature.values().length + 3) {
             return DISABLED;
         }
-        try {
-            Map<String, ?> values = preferences.getAll();
-            Object schema = values.get(HookSettingsContract.SCHEMA_VERSION_KEY);
-            Object revision = values.get(HookSettingsContract.REVISION_KEY);
-            if (!(schema instanceof Integer)
-                    || ((Integer) schema) != HookSettingsContract.SCHEMA_VERSION
-                    || !(revision instanceof Long)
-                    || ((Long) revision) < 0L) {
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        for (String key : values.keySet()) {
+            normalized.put(key, values.get(key));
+        }
+        for (HookFeature feature : HookFeature.values()) {
+            if (!(normalized.get(feature.key()) instanceof Boolean)) {
                 return DISABLED;
             }
-
-            boolean[] enabled = new boolean[HookFeature.values().length];
-            HookFeature[] features = HookFeature.values();
-            for (int i = 0; i < features.length; i++) {
-                Object value = values.get(features[i].key());
-                // Missing or malformed feature values are intentionally disabled.
-                enabled[i] = value instanceof Boolean && (Boolean) value;
-            }
-            return new FeatureSnapshot(true, (Long) revision, enabled);
-        } catch (RuntimeException ignored) {
+        }
+        if (!(normalized.get(FeatureConfiguration.GENERATION_KEY) instanceof Long)) {
             return DISABLED;
         }
+        return fromValues(normalized);
+    }
+
+    static Bundle acknowledgement(FeatureConfiguration configuration) {
+        Bundle result = new Bundle();
+        result.putInt(HookSettingsContract.SCHEMA_VERSION_KEY, HookSettingsContract.SCHEMA_VERSION);
+        result.putLong(HookSettingsContract.GENERATION_KEY, configuration.generation());
+        result.putLong(HookSettingsContract.REVISION_KEY, configuration.revision());
+        for (HookFeature feature : HookFeature.values()) {
+            result.putBoolean(feature.key(), configuration.isEnabled(feature));
+        }
+        return result;
+    }
+
+    FeatureSnapshot accept(FeatureSnapshot incoming) {
+        FeatureConfiguration accepted = configuration.accept(incoming.configuration);
+        return accepted == configuration ? this : new FeatureSnapshot(accepted);
     }
 
     public boolean isSchemaValid() {
-        return schemaValid;
+        return configuration.isValid();
+    }
+
+    public long generation() {
+        return configuration.generation();
     }
 
     public long revision() {
-        return revision;
+        return configuration.revision();
     }
 
     public boolean isEnabled(HookFeature feature) {
-        return feature != null && enabled[feature.ordinal()];
+        return configuration.isEnabled(feature);
     }
 
     public Set<HookFeature> enabledFeatures() {
-        EnumSet<HookFeature> result = EnumSet.noneOf(HookFeature.class);
-        HookFeature[] features = HookFeature.values();
-        for (int i = 0; i < features.length; i++) {
-            if (enabled[i]) {
-                result.add(features[i]);
-            }
-        }
-        return Collections.unmodifiableSet(result);
-    }
-
-    /** Applies a Provider-acknowledged commit without creating another persistent store. */
-    public FeatureSnapshot withAcknowledgedChanges(
-            Map<HookFeature, Boolean> changes,
-            long acknowledgedRevision
-    ) {
-        if (changes == null || changes.isEmpty() || acknowledgedRevision < 0L) {
-            return this;
-        }
-        if (schemaValid && revision > acknowledgedRevision) {
-            return this;
-        }
-        boolean[] updated = schemaValid
-                ? enabled.clone()
-                : new boolean[HookFeature.values().length];
-        for (Map.Entry<HookFeature, Boolean> entry : changes.entrySet()) {
-            HookFeature feature = entry.getKey();
-            Boolean value = entry.getValue();
-            if (feature != null && value != null) {
-                updated[feature.ordinal()] = value;
-            }
-        }
-        return new FeatureSnapshot(true, acknowledgedRevision, updated);
+        return configuration.enabledFeatures();
     }
 
     @Override
@@ -110,17 +92,11 @@ public final class FeatureSnapshot {
         if (!(other instanceof FeatureSnapshot)) {
             return false;
         }
-        FeatureSnapshot that = (FeatureSnapshot) other;
-        return schemaValid == that.schemaValid
-                && revision == that.revision
-                && Arrays.equals(enabled, that.enabled);
+        return configuration.equals(((FeatureSnapshot) other).configuration);
     }
 
     @Override
     public int hashCode() {
-        int result = Boolean.hashCode(schemaValid);
-        result = 31 * result + Long.hashCode(revision);
-        result = 31 * result + Arrays.hashCode(enabled);
-        return result;
+        return configuration.hashCode();
     }
 }

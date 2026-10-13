@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           chmod +x ./gradlew
           git diff --check
-          ./gradlew :app:assembleDebug :app:lintDebug --stacktrace --console=plain
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --stacktrace --console=plain
 
   signed-release:
     name: Build and publish formally signed release APK

@@ -10,12 +10,16 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Process;
 import android.util.Log;
+import android.os.SystemClock;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** Accepts the framework service Binder only from root or system_server. */
 public final class SecureXposedProvider extends ContentProvider {
     private static final String TAG = "FuckBaiduInput";
     private static final String METHOD_SEND_BINDER = "SendBinder";
     private static final String EXTRA_BINDER = "binder";
+    private static final AtomicLong REJECTED_CALLS = new AtomicLong();
+    private static final AtomicLong LAST_REJECTION_LOG = new AtomicLong(-30_000L);
 
     @Override
     public boolean onCreate() {
@@ -34,7 +38,16 @@ public final class SecureXposedProvider extends ContentProvider {
         }
         int callingUid = Binder.getCallingUid();
         if (callingUid != Process.ROOT_UID && callingUid != Process.SYSTEM_UID) {
-            Log.w(TAG, "rejected Xposed service Binder from uid " + callingUid);
+            long count = REJECTED_CALLS.incrementAndGet();
+            long now = SystemClock.elapsedRealtime();
+            long previous = LAST_REJECTION_LOG.get();
+            if (now - previous >= 30_000L && LAST_REJECTION_LOG.compareAndSet(previous, now)) {
+                try {
+                    Log.w(TAG, "rejected Xposed service Binder; count=" + count);
+                } catch (RuntimeException ignored) {
+                    // Diagnostics must never change caller validation.
+                }
+            }
             return null;
         }
         IBinder binder = extras.getBinder(EXTRA_BINDER);
@@ -42,7 +55,6 @@ public final class SecureXposedProvider extends ContentProvider {
             return null;
         }
         XposedServiceHelper.onBinderReceived(binder);
-        Log.i(TAG, "accepted Xposed service Binder from uid " + callingUid);
         return new Bundle();
     }
 

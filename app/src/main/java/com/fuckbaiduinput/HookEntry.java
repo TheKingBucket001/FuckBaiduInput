@@ -139,6 +139,9 @@ public final class HookEntry extends XposedModule {
             )
     };
 
+    private final ModuleDiagnostics diagnostics =
+            new ModuleDiagnostics((priority, message) -> log(priority, TAG, message));
+
     /*
      * The remote preference object and listener are deliberately retained for
      * the lifetime of the module instance.  RemotePreferences does not keep a
@@ -162,9 +165,18 @@ public final class HookEntry extends XposedModule {
             Collections.synchronizedMap(new WeakHashMap<>());
     private final Map<TextView, WeakReference<DoutuTabState>> doutuTabs =
             Collections.synchronizedMap(new WeakHashMap<>());
-    private volatile Bitmap customKeyboardLogo;
-    private volatile int customKeyboardLogoWidth;
-    private volatile int customKeyboardLogoHeight;
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private final Set<TextView> pendingDoutuTabs = Collections.synchronizedSet(
+            Collections.newSetFromMap(new WeakHashMap<>()));
+    private final Map<View, PendingEmotionEntry> pendingEmotionEntries =
+            Collections.synchronizedMap(new WeakHashMap<>());
+    private final CoalescingTask doutuSync = new CoalescingTask(
+            uiHandler::post, () -> runUiStateUpdate("doutu tab sync", this::applyDoutuTabs));
+    private final CoalescingTask emotionSync =
+            new CoalescingTask(uiHandler::post,
+                    () -> runUiStateUpdate("emotion store entry sync", this::applyEmotionStoreEntries));
+    private final BoundedRetryCache<KeyboardLogoKey, Bitmap> customLogoCache =
+            new BoundedRetryCache<>(4, 3, 30_000L);
     private final Set<Activity> feedbackActivities = Collections.synchronizedSet(
             Collections.newSetFromMap(new WeakHashMap<>())
     );
@@ -175,37 +187,46 @@ public final class HookEntry extends XposedModule {
             return;
         }
 
-        ClassLoader classLoader = param.getClassLoader();
-        if (!isSupportedHostVersion(classLoader, param.getApplicationInfo())) {
-            logMessage("unsupported host version in " + param.getPackageName());
-            return;
-        }
-        initializeFeatureSnapshot();
-        initializeHostSettingsUi(classLoader);
-        hookHostLifecycleReadiness(classLoader);
-        HookTargets targets = findMatchingTargets(classLoader);
-        if (targets == null) {
-            logMessage("no matching hook profile in " + param.getPackageName());
-        } else {
-            logMessage("loading clipboard profile " + targets.profile.versionName);
-            hookClipboardConfig(targets);
-            hookClipboardPanel(targets);
-            hookPasteTruncation(targets);
-            hookRecordLengthFilter(targets);
-        }
+        diagnostics.beginInitialization();
+        String outcome = "completed";
+        try {
+            ClassLoader classLoader = param.getClassLoader();
+            if (!isSupportedHostVersion(classLoader, param.getApplicationInfo())) {
+                outcome = "blocked";
+                diagnostics.warning("initialization", "unsupported_host_identity");
+                return;
+            }
+            initializeFeatureSnapshot();
+            initializeHostSettingsUi(classLoader);
+            hookHostLifecycleReadiness(classLoader);
+            HookTargets targets = findMatchingTargets(classLoader);
+            if (targets == null) {
+                diagnostics.warning("initialization", "no_matching_clipboard_profile");
+            } else {
+                hookClipboardConfig(targets);
+                hookClipboardPanel(targets);
+                hookPasteTruncation(targets);
+                hookRecordLengthFilter(targets);
+            }
 
-        hookClipboardRecognition(classLoader);
-        hookCleanUi(classLoader);
-        hookKeyboardLogoReplacement(classLoader);
-        hookModuleSettingsPage(classLoader);
-        hookBlockedSettingsRoutes(classLoader);
-        hookShopStartup(classLoader);
-        hookBackgroundUpdateCheck(classLoader);
-        hookRemoteSkinUpgradeCheck(classLoader);
-        safe("account isolation", () -> hookAccountIsolation(classLoader));
-        hookPrivacyTelemetry(classLoader);
-        hookAdSdkGates(classLoader);
-        hookCandidateAdvertisement(classLoader);
+            hookClipboardRecognition(classLoader);
+            hookCleanUi(classLoader);
+            hookKeyboardLogoReplacement(classLoader);
+            hookModuleSettingsPage(classLoader);
+            hookBlockedSettingsRoutes(classLoader);
+            hookShopStartup(classLoader);
+            hookBackgroundUpdateCheck(classLoader);
+            hookRemoteSkinUpgradeCheck(classLoader);
+            safe("account isolation", () -> hookAccountIsolation(classLoader));
+            hookPrivacyTelemetry(classLoader);
+            hookAdSdkGates(classLoader);
+            hookCandidateAdvertisement(classLoader);
+        } catch (Throwable failure) {
+            outcome = "aborted";
+            diagnostics.error("initialization", "package_ready", failure);
+        } finally {
+            diagnostics.finishInitialization(outcome);
+        }
     }
 
     private void initializeFeatureSnapshot() {
@@ -213,12 +234,14 @@ public final class HookEntry extends XposedModule {
             if (getApiVersion() < 101
                     || (getFrameworkProperties() & PROP_CAP_REMOTE) == 0L) {
                 logMessage("remote preferences unavailable; all features remain disabled");
+                applyFeatureSnapshot(FeatureSnapshot.disabled());
                 return;
             }
             SharedPreferences preferences = getRemotePreferences(
                     HookSettingsContract.REMOTE_PREFERENCES_GROUP);
             if (preferences == null) {
                 logMessage("remote preferences returned null; all features remain disabled");
+                applyFeatureSnapshot(FeatureSnapshot.disabled());
                 return;
             }
             if (featurePreferences != preferences) {
@@ -230,43 +253,53 @@ public final class HookEntry extends XposedModule {
             }
             refreshFeatureSnapshot(preferences);
         } catch (Throwable t) {
-            featureSnapshot.set(FeatureSnapshot.disabled());
-            logMessage("remote preferences initialization failed: " + t);
+            applyFeatureSnapshot(FeatureSnapshot.disabled());
+            diagnostics.error("configuration", "initialize_remote_preferences", t);
         }
     }
 
     private void refreshFeatureSnapshot(SharedPreferences preferences) {
-        try {
-            FeatureSnapshot refreshed = FeatureSnapshot.from(preferences);
-            if (!refreshed.isSchemaValid()) {
-                featureSnapshot.set(FeatureSnapshot.disabled());
-                return;
+        // Serialize reading and failure publication with acknowledged snapshots.
+        synchronized (featureSnapshotLock) {
+            try {
+                Map<String, ?> values = preferences == null ? null : preferences.getAll();
+                FeatureSnapshot refreshed = FeatureSnapshot.fromValues(values);
+                if (!refreshed.isSchemaValid()) {
+                    String invalidReason = FeatureConfiguration.invalidReason(values);
+                    if (invalidReason != null) {
+                        diagnostics.warning("configuration", invalidReason);
+                    }
+                }
+                applyFeatureSnapshot(refreshed);
+            } catch (Throwable t) {
+                applyFeatureSnapshot(FeatureSnapshot.disabled());
+                diagnostics.error("configuration", "read_snapshot", t);
             }
-            applyFeatureSnapshot(refreshed);
-        } catch (Throwable t) {
-            featureSnapshot.set(FeatureSnapshot.disabled());
-            logMessage("feature snapshot refresh failed: " + t);
         }
     }
 
     private void applyFeatureSnapshot(FeatureSnapshot refreshed) {
         boolean finishFeedback;
-        long revision;
+        boolean emotionChanged;
         synchronized (featureSnapshotLock) {
             FeatureSnapshot current = featureSnapshot.get();
-            if (current.isSchemaValid() && refreshed.revision() < current.revision()) {
+            FeatureSnapshot accepted = current.accept(refreshed);
+            if (current.equals(accepted)) {
                 return;
             }
             finishFeedback = !current.isEnabled(HookFeature.FEEDBACK_BLOCK)
-                    && refreshed.isEnabled(HookFeature.FEEDBACK_BLOCK);
-            featureSnapshot.set(refreshed);
-            revision = refreshed.revision();
+                    && accepted.isEnabled(HookFeature.FEEDBACK_BLOCK);
+            emotionChanged = current.isEnabled(HookFeature.EMOTION_SHOP_CLEANUP)
+                    != accepted.isEnabled(HookFeature.EMOTION_SHOP_CLEANUP);
+            featureSnapshot.set(accepted);
         }
         if (finishFeedback) {
-            finishTrackedFeedbackActivities(revision);
+            finishTrackedFeedbackActivities();
         }
-        synchronizeEmotionStoreEntries();
-        synchronizeDoutuTabs();
+        if (emotionChanged) {
+            synchronizeEmotionStoreEntries();
+            synchronizeDoutuTabs();
+        }
     }
 
     private boolean enabled(HookFeature feature) {
@@ -281,6 +314,11 @@ public final class HookEntry extends XposedModule {
                         @Override
                         public boolean isEnabled(HookFeature feature) {
                             return enabled(feature);
+                        }
+
+                        @Override
+                        public FeatureSnapshot snapshot() {
+                            return featureSnapshot.get();
                         }
 
                         @Override
@@ -349,14 +387,16 @@ public final class HookEntry extends XposedModule {
                 logMessage("feature settings commit returned invalid revision");
                 return false;
             }
-            FeatureSnapshot acknowledged;
-            synchronized (featureSnapshotLock) {
-                acknowledged = featureSnapshot.get().withAcknowledgedChanges(flags, revision);
+            FeatureSnapshot acknowledged = FeatureSnapshot.fromAcknowledgement(
+                    response.getBundle(HookSettingsContract.RESULT_SNAPSHOT));
+            if (!acknowledged.isSchemaValid() || acknowledged.revision() != revision) {
+                logMessage("feature settings commit returned invalid snapshot");
+                return false;
             }
             applyFeatureSnapshot(acknowledged);
             return true;
         } catch (Throwable t) {
-            logMessage("feature settings commit failed: " + t);
+            diagnostics.error("configuration", "write_flags", t);
             return false;
         }
     }
@@ -1422,18 +1462,13 @@ public final class HookEntry extends XposedModule {
         }
 
         try {
-            List<?> source = (List<?>) menuItems;
-            ArrayList<Object> filtered = new ArrayList<>(source.size());
-            boolean removed = false;
-            for (Object item : source) {
+            FeatureSnapshot snapshot = featureSnapshot.get();
+            return ListFilters.removeMatching((List<?>) menuItems, item -> {
                 Object menuFunction = item == null ? null : getMenuFunctionMethod.invoke(item);
-                if (isBlockedToolboxFunction(menuFunction)) {
-                    removed = true;
-                    continue;
-                }
-                filtered.add(item);
-            }
-            return removed ? filtered : null;
+                HookFeature feature = menuFunction instanceof Enum<?>
+                        ? toolboxFeature(((Enum<?>) menuFunction).name()) : null;
+                return snapshot.isEnabled(feature);
+            });
         } catch (Throwable t) {
             logMessage("failed to filter toolbox items: " + t);
             return null;
@@ -1441,12 +1476,13 @@ public final class HookEntry extends XposedModule {
     }
 
     private boolean hasToolboxFeatureEnabled() {
-        return enabled(HookFeature.HIDE_SEARCH)
-                || enabled(HookFeature.HIDE_MECHANICAL_KEYBOARD)
-                || enabled(HookFeature.HIDE_FONT_SETTING)
-                || enabled(HookFeature.CLOUD_BACKUP_SYNC)
-                || enabled(HookFeature.FEEDBACK_BLOCK)
-                || enabled(HookFeature.WISDOM_RECOMMENDATION);
+        FeatureSnapshot snapshot = featureSnapshot.get();
+        return snapshot.isEnabled(HookFeature.HIDE_SEARCH)
+                || snapshot.isEnabled(HookFeature.HIDE_MECHANICAL_KEYBOARD)
+                || snapshot.isEnabled(HookFeature.HIDE_FONT_SETTING)
+                || snapshot.isEnabled(HookFeature.CLOUD_BACKUP_SYNC)
+                || snapshot.isEnabled(HookFeature.FEEDBACK_BLOCK)
+                || snapshot.isEnabled(HookFeature.WISDOM_RECOMMENDATION);
     }
 
     private boolean isBlockedToolboxFunction(Object menuFunction) {
@@ -1489,17 +1525,10 @@ public final class HookEntry extends XposedModule {
         }
 
         try {
-            List<?> source = (List<?>) functionItems;
-            ArrayList<Object> filtered = new ArrayList<>(source.size());
-            for (Object item : source) {
-                if (functionItemClass.isInstance(item)
+            return ListFilters.removeMatching((List<?>) functionItems,
+                    item -> functionItemClass.isInstance(item)
                         && Integer.valueOf(INTENT_RECOMMEND_TITLE_RES_ID).equals(
-                        getTextResource.invoke(item))) {
-                    continue;
-                }
-                filtered.add(item);
-            }
-            return filtered;
+                        getTextResource.invoke(item)));
         } catch (Throwable t) {
             logMessage("failed to filter pure-mode function items: " + t);
             return null;
@@ -1552,8 +1581,7 @@ public final class HookEntry extends XposedModule {
 
         try {
             int length = Array.getLength(results);
-            ArrayList<Object> filtered = new ArrayList<>(length);
-            boolean removed = false;
+            ArrayList<Object> filtered = null;
             for (int i = 0; i < length; i++) {
                 Object result = Array.get(results, i);
                 if (result != null && !resultClass.isInstance(result)) {
@@ -1561,12 +1589,19 @@ public final class HookEntry extends XposedModule {
                 }
                 if (result != null
                         && resultTypeField.getInt(result) == UNIQUE_RESULT_SERVICE_TYPE) {
-                    removed = true;
+                    if (filtered == null) {
+                        filtered = new ArrayList<>(Math.max(0, length - 1));
+                        for (int previous = 0; previous < i; previous++) {
+                            filtered.add(Array.get(results, previous));
+                        }
+                    }
                     continue;
                 }
-                filtered.add(result);
+                if (filtered != null) {
+                    filtered.add(result);
+                }
             }
-            if (!removed) {
+            if (filtered == null) {
                 return results;
             }
 
@@ -1854,12 +1889,11 @@ public final class HookEntry extends XposedModule {
         });
     }
 
-    private void finishTrackedFeedbackActivities(long revision) {
+    private void finishTrackedFeedbackActivities() {
         Handler handler = new Handler(Looper.getMainLooper());
         if (!handler.post(() -> {
             FeatureSnapshot current = featureSnapshot.get();
             if (!current.isSchemaValid()
-                    || current.revision() < revision
                     || !current.isEnabled(HookFeature.FEEDBACK_BLOCK)) {
                 return;
             }
@@ -2332,6 +2366,10 @@ public final class HookEntry extends XposedModule {
                     skinLocalInfoClass
             );
             Method getSkinNameMethod = findMethod(skinLocalInfoClass, "g", String.class);
+            FilteredListCall filteredCall = new FilteredListCall(item -> {
+                Object skin = getSkinLocalInfoMethod.invoke(item);
+                return HIDDEN_LOCAL_SKIN_NAME.equals(getSkinNameMethod.invoke(skin));
+            }, failure -> diagnostics.error("runtime", "local_skin_list_filter", failure));
 
             hook(submitItemsMethod)
                     .setExceptionMode(ExceptionMode.PROTECTIVE)
@@ -2343,20 +2381,9 @@ public final class HookEntry extends XposedModule {
                         if (!(items instanceof List<?>)) {
                             return chain.proceed();
                         }
-                        try {
-                            ArrayList<Object> visibleItems = new ArrayList<>(((List<?>) items).size());
-                            for (Object item : (List<?>) items) {
-                                Object skin = getSkinLocalInfoMethod.invoke(item);
-                                Object name = getSkinNameMethod.invoke(skin);
-                                if (!HIDDEN_LOCAL_SKIN_NAME.equals(name)) {
-                                    visibleItems.add(item);
-                                }
-                            }
-                            return chain.proceed(new Object[] { visibleItems });
-                        } catch (Throwable t) {
-                            logMessage("failed to filter local skin list: " + t);
-                            return chain.proceed();
-                        }
+                        return filteredCall.invoke((List<?>) items,
+                                argument -> argument == items ? chain.proceed()
+                                        : chain.proceed(new Object[] { argument }));
                     });
         });
     }
@@ -2454,10 +2481,22 @@ public final class HookEntry extends XposedModule {
         if (doutuTab == null) {
             return;
         }
+        pendingDoutuTabs.add(doutuTab);
+        synchronizeDoutuTabs();
+    }
+
+    private void captureDoutuTab(TextView doutuTab) {
+        if (doutuTab.getParent() == null) {
+            return;
+        }
         synchronized (doutuTabs) {
             WeakReference<DoutuTabState> reference = doutuTabs.get(doutuTab);
             DoutuTabState state = reference == null ? null : reference.get();
-            if (state == null) {
+            if (state == null || !state.isCurrent()) {
+                if (state != null) {
+                    removeOwnedState(state.parent == null ? state.tabCell : state.parent,
+                            TAG_DOUTU_TAB_STATES, state);
+                }
                 state = DoutuTabState.capture(doutuTab);
                 View owner = state.parent == null ? state.tabCell : state.parent;
                 List<DoutuTabState> ownedStates = viewOwnedStates(
@@ -2465,6 +2504,7 @@ public final class HookEntry extends XposedModule {
                 if (ownedStates == null) {
                     return;
                 }
+                ownedStates.removeIf(owned -> !owned.isCurrent());
                 for (DoutuTabState ownedState : ownedStates) {
                     if (ownedState.tabCell == state.tabCell) {
                         state = ownedState;
@@ -2477,7 +2517,6 @@ public final class HookEntry extends XposedModule {
                 doutuTabs.put(doutuTab, new WeakReference<>(state));
             }
         }
-        synchronizeDoutuTabs();
     }
 
     @SuppressWarnings("unchecked")
@@ -2500,25 +2539,79 @@ public final class HookEntry extends XposedModule {
     }
 
     private void synchronizeDoutuTabs() {
-        Handler handler = new Handler(Looper.getMainLooper());
-        if (!handler.post(() -> {
-            boolean hide = enabled(HookFeature.EMOTION_SHOP_CLEANUP);
-            synchronized (doutuTabs) {
-                Iterator<Map.Entry<TextView, WeakReference<DoutuTabState>>> iterator =
-                        doutuTabs.entrySet().iterator();
-                while (iterator.hasNext()) {
-                    Map.Entry<TextView, WeakReference<DoutuTabState>> entry = iterator.next();
-                    WeakReference<DoutuTabState> reference = entry.getValue();
-                    DoutuTabState state = reference == null ? null : reference.get();
-                    if (entry.getKey() == null || state == null) {
+        try {
+            if (!doutuSync.request()) {
+                logMessage("failed to schedule doutu tab sync");
+            }
+        } catch (Throwable error) {
+            logMessage("failed to schedule doutu tab sync: " + error);
+        }
+    }
+
+    private void runUiStateUpdate(String name, Runnable update) {
+        try {
+            update.run();
+        } catch (Throwable error) {
+            logMessage("failed to execute " + name + ": " + error);
+        }
+    }
+
+    private void applyDoutuTabs() {
+        List<TextView> pending;
+        synchronized (pendingDoutuTabs) {
+            pending = new ArrayList<>(pendingDoutuTabs);
+            pendingDoutuTabs.clear();
+        }
+        for (TextView tab : pending) {
+            try {
+                captureDoutuTab(tab);
+            } catch (Throwable error) {
+                logMessage("failed to capture doutu tab: " + error);
+            }
+        }
+        boolean hide = enabled(HookFeature.EMOTION_SHOP_CLEANUP);
+        synchronized (doutuTabs) {
+            Iterator<Map.Entry<TextView, WeakReference<DoutuTabState>>> iterator =
+                    doutuTabs.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<TextView, WeakReference<DoutuTabState>> entry = iterator.next();
+                WeakReference<DoutuTabState> reference = entry.getValue();
+                DoutuTabState state = reference == null ? null : reference.get();
+                boolean removed = false;
+                try {
+                    if (entry.getKey() == null || state == null || !state.isCurrent()) {
                         iterator.remove();
+                        removed = true;
+                        if (state != null) {
+                            removeOwnedState(state.parent == null ? state.tabCell : state.parent,
+                                    TAG_DOUTU_TAB_STATES, state);
+                        }
                     } else {
                         state.apply(hide);
                     }
+                } catch (Throwable error) {
+                    if (!removed) {
+                        iterator.remove();
+                    }
+                    logMessage("failed to update doutu tab: " + error);
+                    if (state != null) {
+                        try {
+                            state.apply(false);
+                            removeOwnedState(state.parent == null ? state.tabCell : state.parent,
+                                    TAG_DOUTU_TAB_STATES, state);
+                        } catch (Throwable restoreError) {
+                            logMessage("failed to restore retired doutu tab: " + restoreError);
+                        }
+                    }
                 }
             }
-        })) {
-            logMessage("failed to schedule doutu tab sync");
+        }
+    }
+
+    private static void removeOwnedState(View owner, int tagKey, Object state) {
+        Object tag = owner.getTag(tagKey);
+        if (tag instanceof List<?>) {
+            ((List<?>) tag).remove(state);
         }
     }
 
@@ -2565,58 +2658,127 @@ public final class HookEntry extends XposedModule {
     }
 
     private void registerEmotionStoreEntry(View root, View entry, int storeViewId) {
-        View candidate = entry != null ? entry : root.findViewById(storeViewId);
-        if (candidate == null) {
-            return;
+        pendingEmotionEntries.put(root, new PendingEmotionEntry(entry, storeViewId));
+        synchronizeEmotionStoreEntries();
+    }
+
+    private static final class PendingEmotionEntry {
+        private final WeakReference<View> entry;
+        private final int storeViewId;
+
+        private PendingEmotionEntry(View entry, int storeViewId) {
+            this.entry = new WeakReference<>(entry);
+            this.storeViewId = storeViewId;
         }
-        root.post(() -> {
-            synchronized (emotionStoreEntries) {
-                WeakReference<EmotionStoreEntryState> reference = emotionStoreEntries.get(candidate);
-                EmotionStoreEntryState state = reference == null ? null : reference.get();
+    }
+
+    private void captureEmotionStoreEntry(View root, PendingEmotionEntry pending) {
+        // Resolve after the host has finished its complete construction stack.
+        View candidate = root.findViewById(pending.storeViewId);
+        if (candidate == null) {
+            candidate = pending.entry.get();
+        }
+        synchronized (emotionStoreEntries) {
+            List<EmotionStoreEntryState> ownedStates = viewOwnedStates(
+                    root, TAG_EMOTION_STORE_STATES, EmotionStoreEntryState.class);
+            if (ownedStates == null) {
+                return;
+            }
+            ownedStates.removeIf(owned -> {
+                if (owned.isCurrent()) {
+                    return false;
+                }
+                owned.restoreRetainedLayout();
+                return true;
+            });
+            if (candidate == null) {
+                return;
+            }
+            WeakReference<EmotionStoreEntryState> reference = emotionStoreEntries.get(candidate);
+            EmotionStoreEntryState state = reference == null ? null : reference.get();
+            if (state == null || state.root != root || !state.isCurrent()) {
+                if (state != null) {
+                    state.restoreRetainedLayout();
+                    removeOwnedState(state.root, TAG_EMOTION_STORE_STATES, state);
+                }
+                state = null;
+                for (EmotionStoreEntryState ownedState : ownedStates) {
+                    if (ownedState.entry == candidate) {
+                        state = ownedState;
+                        break;
+                    }
+                }
                 if (state == null) {
-                    List<EmotionStoreEntryState> ownedStates = viewOwnedStates(
-                            root, TAG_EMOTION_STORE_STATES, EmotionStoreEntryState.class);
-                    if (ownedStates == null) {
+                    state = EmotionStoreEntryState.capture(root, candidate);
+                    if (!state.isCurrent()) {
                         return;
                     }
-                    for (EmotionStoreEntryState ownedState : ownedStates) {
-                        if (ownedState.entry == candidate) {
-                            state = ownedState;
-                            break;
-                        }
-                    }
-                    if (state == null) {
-                        state = EmotionStoreEntryState.capture(root, candidate);
-                        // LinearLayout removal must keep its entry restorable while root is alive.
-                        ownedStates.add(state);
-                    }
-                    emotionStoreEntries.put(candidate, new WeakReference<>(state));
+                    // A module-removed LinearLayout entry remains owned until OFF or host replacement.
+                    ownedStates.add(state);
                 }
+                emotionStoreEntries.put(candidate, new WeakReference<>(state));
             }
-            synchronizeEmotionStoreEntries();
-        });
+        }
     }
 
     private void synchronizeEmotionStoreEntries() {
-        Handler handler = new Handler(Looper.getMainLooper());
-        if (!handler.post(() -> {
-            boolean hide = enabled(HookFeature.EMOTION_SHOP_CLEANUP);
-            synchronized (emotionStoreEntries) {
-                Iterator<Map.Entry<View, WeakReference<EmotionStoreEntryState>>> iterator =
-                        emotionStoreEntries.entrySet().iterator();
-                while (iterator.hasNext()) {
-                    Map.Entry<View, WeakReference<EmotionStoreEntryState>> entry = iterator.next();
-                    WeakReference<EmotionStoreEntryState> reference = entry.getValue();
-                    EmotionStoreEntryState state = reference == null ? null : reference.get();
-                    if (entry.getKey() == null || state == null) {
+        try {
+            if (!emotionSync.request()) {
+                logMessage("failed to schedule emotion store entry sync");
+            }
+        } catch (Throwable error) {
+            logMessage("failed to schedule emotion store entry sync: " + error);
+        }
+    }
+
+    private void applyEmotionStoreEntries() {
+        Map<View, PendingEmotionEntry> pending;
+        synchronized (pendingEmotionEntries) {
+            pending = new HashMap<>(pendingEmotionEntries);
+            pendingEmotionEntries.clear();
+        }
+        for (Map.Entry<View, PendingEmotionEntry> entry : pending.entrySet()) {
+            try {
+                captureEmotionStoreEntry(entry.getKey(), entry.getValue());
+            } catch (Throwable error) {
+                logMessage("failed to capture emotion store entry: " + error);
+            }
+        }
+        boolean hide = enabled(HookFeature.EMOTION_SHOP_CLEANUP);
+        synchronized (emotionStoreEntries) {
+            Iterator<Map.Entry<View, WeakReference<EmotionStoreEntryState>>> iterator =
+                    emotionStoreEntries.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<View, WeakReference<EmotionStoreEntryState>> entry = iterator.next();
+                WeakReference<EmotionStoreEntryState> reference = entry.getValue();
+                EmotionStoreEntryState state = reference == null ? null : reference.get();
+                boolean removed = false;
+                try {
+                    if (entry.getKey() == null || state == null || !state.isCurrent()) {
                         iterator.remove();
+                        removed = true;
+                        if (state != null) {
+                            state.restoreRetainedLayout();
+                            removeOwnedState(state.root, TAG_EMOTION_STORE_STATES, state);
+                        }
                     } else {
                         state.apply(hide);
                     }
+                } catch (Throwable error) {
+                    if (!removed) {
+                        iterator.remove();
+                    }
+                    logMessage("failed to update emotion store entry: " + error);
+                    if (state != null) {
+                        try {
+                            state.apply(false);
+                            removeOwnedState(state.root, TAG_EMOTION_STORE_STATES, state);
+                        } catch (Throwable restoreError) {
+                            logMessage("failed to restore retired emotion store entry: " + restoreError);
+                        }
+                    }
                 }
             }
-        })) {
-            logMessage("failed to schedule emotion store entry sync");
         }
     }
 
@@ -2632,59 +2794,81 @@ public final class HookEntry extends XposedModule {
             hook(decodeResource)
                     .setExceptionMode(ExceptionMode.PROTECTIVE)
                     .intercept(chain -> {
-                        Bitmap original = (Bitmap) chain.proceed();
                         Object resourceId = chain.getArg(1);
-                        if (!(resourceId instanceof Integer)
+                        Object resourceValue = chain.getArg(0);
+                        if (!enabled(HookFeature.CUSTOM_KEYBOARD_LOGO)
+                                || !(resourceValue instanceof android.content.res.Resources)
+                                || !(resourceId instanceof Integer)
                                 || (((Integer) resourceId).intValue()
                                 != DRAWABLE_PURE_MODE_CAND_ICON_NORMAL
                                 && ((Integer) resourceId).intValue()
                                 != DRAWABLE_PURE_MODE_CAND_ICON_DARK)) {
+                            return chain.proceed();
+                        }
+                        int id = (Integer) resourceId;
+                        String expectedName = id == DRAWABLE_PURE_MODE_CAND_ICON_NORMAL
+                                ? "pure_mode_cand_icon_normal_t" : "pure_mode_cand_icon_dark_t";
+                        android.content.res.Resources resources =
+                                (android.content.res.Resources) resourceValue;
+                        KeyboardLogoKey key = KeyboardLogoKey.create(resources, id, expectedName);
+                        if (key == null) {
+                            return chain.proceed();
+                        }
+                        Bitmap cached = customLogoCache.get(key);
+                        if (cached != null && !cached.isRecycled()) {
+                            return cached;
+                        }
+                        if (cached != null) {
+                            customLogoCache.invalidate(key);
+                        }
+                        if (!customLogoCache.canLoad(key, android.os.SystemClock.uptimeMillis())) {
+                            return chain.proceed();
+                        }
+                        Bitmap original = (Bitmap) chain.proceed();
+                        // A configuration change during the original decode must not seed a stale key.
+                        if (!key.equals(KeyboardLogoKey.create(resources, id, expectedName))) {
                             return original;
                         }
-                        return enabled(HookFeature.CUSTOM_KEYBOARD_LOGO)
-                                ? replacementOrOriginal(original)
-                                : original;
+                        return replacementOrOriginal(key, original);
                     });
         });
     }
 
-    private Bitmap replacementOrOriginal(Bitmap original) {
-        Bitmap replacement = loadCustomKeyboardLogo(
-                original == null ? 72 : original.getWidth(),
-                original == null ? 72 : original.getHeight()
-        );
-        if (replacement == null) {
-            logMessage("custom keyboard logo replacement skipped: resource unavailable");
+    private Bitmap replacementOrOriginal(KeyboardLogoKey key, Bitmap original) {
+        if (original == null || original.isRecycled()) {
             return original;
         }
-        return replacement;
+        Bitmap replacement = loadCustomKeyboardLogo(
+                key, original.getWidth(), original.getHeight(), original.getDensity());
+        return replacement == null ? original : replacement;
     }
 
-    private Bitmap loadCustomKeyboardLogo(int width, int height) {
+    private Bitmap loadCustomKeyboardLogo(KeyboardLogoKey key, int width, int height, int bitmapDensity) {
         if (width <= 0 || height <= 0) {
             return null;
         }
-        Bitmap cached = customKeyboardLogo;
-        if (cached != null && !cached.isRecycled()
-                && customKeyboardLogoWidth == width && customKeyboardLogoHeight == height) {
-            return cached;
-        }
-        synchronized (this) {
-            cached = customKeyboardLogo;
-            if (cached != null && !cached.isRecycled()
-                    && customKeyboardLogoWidth == width && customKeyboardLogoHeight == height) {
+        synchronized (customLogoCache) {
+            Bitmap cached = customLogoCache.get(key);
+            if (cached != null && !cached.isRecycled()) {
                 return cached;
             }
+            if (cached != null) {
+                customLogoCache.invalidate(key);
+            }
+            long now = android.os.SystemClock.uptimeMillis();
+            if (!customLogoCache.canLoad(key, now)) {
+                return null;
+            }
+            Bitmap source = null;
             try (JarFile moduleApk = new JarFile(getModuleApplicationInfo().sourceDir)) {
                 JarEntry entry = moduleApk.getJarEntry("assets/miku_keyboard_emoji.png");
                 if (entry == null) {
-                    logMessage("custom keyboard logo resource missing");
-                    return null;
+                    throw new IllegalStateException("custom keyboard logo resource missing");
                 }
                 try (InputStream stream = moduleApk.getInputStream(entry)) {
-                    Bitmap source = BitmapFactory.decodeStream(stream);
-                    if (source == null) {
-                        return null;
+                    source = BitmapFactory.decodeStream(stream);
+                    if (source == null || source.getWidth() <= 9 || source.getHeight() <= 9) {
+                        throw new IllegalStateException("invalid custom keyboard logo bitmap");
                     }
                     int iconSize = Math.min(width, height);
                     int offsetX = (width - iconSize) / 2;
@@ -2694,6 +2878,7 @@ public final class HookEntry extends XposedModule {
                             height,
                             Bitmap.Config.ARGB_8888
                     );
+                    replacement.setDensity(bitmapDensity);
                     Canvas canvas = new Canvas(replacement);
                     Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
                     canvas.drawBitmap(
@@ -2702,15 +2887,18 @@ public final class HookEntry extends XposedModule {
                             new Rect(offsetX, offsetY, offsetX + iconSize, offsetY + iconSize),
                             paint
                     );
-                    customKeyboardLogo = replacement;
-                    customKeyboardLogoWidth = width;
-                    customKeyboardLogoHeight = height;
-                    source.recycle();
-                    return customKeyboardLogo;
+                    // Only module-owned temporary input is recycled; cached output may be held by the host.
+                    customLogoCache.put(key, replacement);
+                    return replacement;
                 }
             } catch (Throwable t) {
+                customLogoCache.recordFailure(key, now);
                 logMessage("failed to load custom keyboard logo: " + t);
                 return null;
+            } finally {
+                if (source != null && !source.isRecycled()) {
+                    source.recycle();
+                }
             }
         }
     }
@@ -3405,10 +3593,9 @@ public final class HookEntry extends XposedModule {
             int current = targets.clipCountField.getInt(config);
             if (current < MAX_CLIP_COUNT) {
                 targets.clipCountField.setInt(config, MAX_CLIP_COUNT);
-                logMessage(targets.profile.configClassName + ".a field lifted from " + current + " to " + MAX_CLIP_COUNT);
             }
         } catch (Throwable t) {
-            logMessage("failed to update " + targets.profile.configClassName + ".a field: " + t.getMessage());
+            diagnostics.error("clipboard", "update_capacity", t);
         }
     }
 
@@ -3433,10 +3620,9 @@ public final class HookEntry extends XposedModule {
 
             if (!text.equals(updated)) {
                 counter.setText(updated);
-                logMessage("counter text updated: " + text + " -> " + updated);
             }
         } catch (Throwable t) {
-            logMessage("failed to update counter text: " + t.getMessage());
+            diagnostics.error("clipboard", "update_counter_text", t);
         }
     }
 
@@ -3496,16 +3682,11 @@ public final class HookEntry extends XposedModule {
     }
 
     private void safe(String name, HookInstaller installer) {
-        try {
-            installer.install();
-            logMessage(name + " installed");
-        } catch (Throwable t) {
-            logMessage(name + " failed: " + t);
-        }
+        diagnostics.installGroup(name, installer::install);
     }
 
     private void logMessage(String message) {
-        log(Log.INFO, TAG, message);
+        diagnostics.legacy(message);
     }
 
     private interface HookInstaller {
@@ -3516,21 +3697,16 @@ public final class HookEntry extends XposedModule {
     private static final class DoutuTabState {
         private final View tabCell;
         private final LinearLayout parent;
-        private final int index;
-        private final ViewGroup.LayoutParams layoutParams;
-        private final int visibility;
+        private int visibility;
+        private boolean hiddenByModule;
 
         private DoutuTabState(
                 View tabCell,
                 LinearLayout parent,
-                int index,
-                ViewGroup.LayoutParams layoutParams,
                 int visibility
         ) {
             this.tabCell = tabCell;
             this.parent = parent;
-            this.index = index;
-            this.layoutParams = layoutParams;
             this.visibility = visibility;
         }
 
@@ -3543,36 +3719,42 @@ public final class HookEntry extends XposedModule {
             }
             if (!(parentObject instanceof LinearLayout)) {
                 return new DoutuTabState(
-                        tabCell, null, -1, tabCell.getLayoutParams(), tabCell.getVisibility()
+                        tabCell, null, tabCell.getVisibility()
                 );
             }
             LinearLayout parent = (LinearLayout) parentObject;
             return new DoutuTabState(
                     tabCell,
                     parent,
-                    parent.indexOfChild(tabCell),
-                    tabCell.getLayoutParams(),
                     tabCell.getVisibility()
             );
         }
 
+        boolean isCurrent() {
+            return parent == null || tabCell.getParent() == parent;
+        }
+
         void apply(boolean hide) {
-            if (parent == null) {
-                tabCell.setVisibility(hide ? View.GONE : visibility);
+            if (!isCurrent()) {
                 return;
             }
             if (hide) {
                 // sb9 validates a page type against getChildCount(). Removing a tab makes
                 // type 6 (我的) unreachable; GONE preserves that contract while weighted
                 // visible siblings still occupy the complete bar.
-                tabCell.setVisibility(View.GONE);
-            } else {
-                if (tabCell.getParent() == null) {
-                    parent.addView(tabCell, Math.min(index, parent.getChildCount()), layoutParams);
+                if (!hiddenByModule || tabCell.getVisibility() != View.GONE) {
+                    visibility = tabCell.getVisibility();
                 }
-                tabCell.setVisibility(visibility);
+                hiddenByModule = true;
+                if (tabCell.getVisibility() != View.GONE) {
+                    tabCell.setVisibility(View.GONE);
+                }
+            } else if (hiddenByModule) {
+                if (tabCell.getVisibility() == View.GONE && visibility != View.GONE) {
+                    tabCell.setVisibility(visibility);
+                }
+                hiddenByModule = false;
             }
-            parent.requestLayout();
         }
     }
 
@@ -3586,9 +3768,11 @@ public final class HookEntry extends XposedModule {
         private final View entry;
         private final ViewGroup parent;
         private int entryVisibility;
-        private final int entryIndex;
-        private final ViewGroup.LayoutParams entryLayoutParams;
+        private int entryIndex;
+        private ViewGroup.LayoutParams entryLayoutParams;
         private final List<RelativeChildState> affectedChildren;
+        private boolean hiddenByModule;
+        private boolean removedByModule;
 
         private EmotionStoreEntryState(
                 View root,
@@ -3668,28 +3852,86 @@ public final class HookEntry extends XposedModule {
             }
         }
 
+        boolean isCurrent() {
+            if (parent == null || !belongsToRoot(parent)) {
+                return false;
+            }
+            if (entry.getParent() == parent) {
+                return true;
+            }
+            if (removedByModule && entry.getParent() == null) {
+                View replacement = root.findViewById(entry.getId());
+                return replacement == null || replacement == entry;
+            }
+            return false;
+        }
+
+        private boolean belongsToRoot(View view) {
+            View current = view;
+            while (current != null) {
+                if (current == root) {
+                    return true;
+                }
+                ViewParent ancestor = current.getParent();
+                current = ancestor instanceof View ? (View) ancestor : null;
+            }
+            return false;
+        }
+
+        void restoreRetainedLayout() {
+            // An obsolete entry may share still-live content with its replacement.
+            // Restore only our layout changes before the replacement captures its baseline.
+            for (RelativeChildState child : affectedChildren) {
+                if (child.child.getParent() == parent && belongsToRoot(child.child)) {
+                    child.apply(false, 0);
+                }
+            }
+        }
+
         void apply(boolean hide) {
+            if (!isCurrent()) {
+                return;
+            }
             if (parent instanceof LinearLayout) {
                 applyLinearLayout(hide);
                 return;
             }
-            entry.setVisibility(hide ? View.GONE : entryVisibility);
-            for (RelativeChildState child : affectedChildren) {
-                child.apply(hide, entryLayoutParams == null ? 0 : entryLayoutParams.width);
+            if (hide && !hiddenByModule) {
+                entryVisibility = entry.getVisibility();
             }
-            root.requestLayout();
+            if (hide || hiddenByModule) {
+                int desired = hide ? View.GONE : entryVisibility;
+                if (entry.getVisibility() != desired) {
+                    entry.setVisibility(desired);
+                }
+            }
+            hiddenByModule = hide;
+            // The module never removes content/divider children, so detached children are obsolete.
+            affectedChildren.removeIf(child -> child.child.getParent() != parent);
+            for (RelativeChildState child : affectedChildren) {
+                if (child.child.getParent() == parent) {
+                    ViewGroup.LayoutParams currentParams = entry.getLayoutParams();
+                    child.apply(hide, currentParams == null ? 0 : currentParams.width);
+                }
+            }
         }
 
         private void applyLinearLayout(boolean hide) {
             if (hide) {
                 if (entry.getParent() == parent) {
+                    entryIndex = parent.indexOfChild(entry);
+                    entryLayoutParams = entry.getLayoutParams();
+                    entryVisibility = entry.getVisibility();
                     parent.removeView(entry);
+                    removedByModule = true;
                 }
-            } else if (entry.getParent() == null) {
+            } else if (removedByModule && entry.getParent() == null) {
                 parent.addView(entry, Math.min(entryIndex, parent.getChildCount()), entryLayoutParams);
-                entry.setVisibility(entryVisibility);
+                removedByModule = false;
+                if (entry.getVisibility() != entryVisibility) {
+                    entry.setVisibility(entryVisibility);
+                }
             }
-            root.requestLayout();
         }
     }
 
@@ -3699,12 +3941,16 @@ public final class HookEntry extends XposedModule {
         private final boolean rightOfEntry;
         private final boolean reduceLeftMargin;
         private final boolean hideDivider;
+        private final int entryId;
         private int visibility;
-        private final int[] rules;
-        private final int leftMargin;
-        private final int topMargin;
-        private final int rightMargin;
-        private final int bottomMargin;
+        private int leftRule;
+        private int rightRule;
+        private int leftMargin;
+        private int appliedLeftMargin;
+        private boolean leftRuleChanged;
+        private boolean rightRuleChanged;
+        private boolean leftMarginChanged;
+        private boolean dividerHidden;
 
         private RelativeChildState(
                 View child,
@@ -3720,11 +3966,10 @@ public final class HookEntry extends XposedModule {
             this.hideDivider = hideDivider;
             this.visibility = child.getVisibility();
             RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) child.getLayoutParams();
-            this.rules = params.getRules().clone();
+            this.leftRule = params.getRule(EmotionStoreEntryState.LEFT_OF);
+            this.rightRule = params.getRule(EmotionStoreEntryState.RIGHT_OF);
+            this.entryId = leftOfEntry ? leftRule : rightRule;
             this.leftMargin = params.leftMargin;
-            this.topMargin = params.topMargin;
-            this.rightMargin = params.rightMargin;
-            this.bottomMargin = params.bottomMargin;
         }
 
         void captureHostVisibility() {
@@ -3734,34 +3979,77 @@ public final class HookEntry extends XposedModule {
         }
 
         void apply(boolean hide, int entryWidth) {
+            if (!(child.getLayoutParams() instanceof RelativeLayout.LayoutParams)) {
+                leftRuleChanged = false;
+                rightRuleChanged = false;
+                leftMarginChanged = false;
+                dividerHidden = false;
+                return;
+            }
             RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) child.getLayoutParams();
+            boolean layoutChanged = false;
             if (hide) {
-                if (leftOfEntry) {
+                int currentLeftRule = params.getRule(EmotionStoreEntryState.LEFT_OF);
+                int currentRightRule = params.getRule(EmotionStoreEntryState.RIGHT_OF);
+                if (leftOfEntry && currentLeftRule == entryId) {
+                    leftRule = currentLeftRule;
                     params.removeRule(EmotionStoreEntryState.LEFT_OF);
+                    leftRuleChanged = true;
+                    layoutChanged = true;
+                } else if (currentLeftRule != 0) {
+                    leftRuleChanged = false;
                 }
-                if (rightOfEntry) {
+                if (rightOfEntry && currentRightRule == entryId) {
+                    rightRule = currentRightRule;
                     params.removeRule(EmotionStoreEntryState.RIGHT_OF);
+                    rightRuleChanged = true;
+                    layoutChanged = true;
+                } else if (currentRightRule != 0) {
+                    rightRuleChanged = false;
                 }
                 if (reduceLeftMargin && entryWidth > 0) {
-                    params.leftMargin = Math.max(0, leftMargin - entryWidth);
+                    if (!leftMarginChanged || params.leftMargin != appliedLeftMargin) {
+                        leftMargin = params.leftMargin;
+                    }
+                    appliedLeftMargin = Math.max(0, leftMargin - entryWidth);
+                    if (params.leftMargin != appliedLeftMargin) {
+                        params.leftMargin = appliedLeftMargin;
+                        layoutChanged = true;
+                    }
+                    leftMarginChanged = true;
                 }
             } else {
-                for (int rule = 0; rule < rules.length; rule++) {
-                    params.removeRule(rule);
-                    if (rules[rule] != 0) {
-                        params.addRule(rule, rules[rule]);
-                    }
+                if (leftRuleChanged && params.getRule(EmotionStoreEntryState.LEFT_OF) == 0) {
+                    params.addRule(EmotionStoreEntryState.LEFT_OF, leftRule);
+                    layoutChanged = true;
                 }
-                params.leftMargin = leftMargin;
-                params.topMargin = topMargin;
-                params.rightMargin = rightMargin;
-                params.bottomMargin = bottomMargin;
+                if (rightRuleChanged && params.getRule(EmotionStoreEntryState.RIGHT_OF) == 0) {
+                    params.addRule(EmotionStoreEntryState.RIGHT_OF, rightRule);
+                    layoutChanged = true;
+                }
+                if (leftMarginChanged && params.leftMargin == appliedLeftMargin
+                        && params.leftMargin != leftMargin) {
+                    params.leftMargin = leftMargin;
+                    layoutChanged = true;
+                }
+                leftRuleChanged = false;
+                rightRuleChanged = false;
+                leftMarginChanged = false;
             }
             // The host owns loading/content visibility; only the divider is hidden here.
-            if (hideDivider) {
-                child.setVisibility(hide ? View.GONE : visibility);
+            if (hideDivider && (hide || dividerHidden)) {
+                if (hide && !dividerHidden) {
+                    visibility = child.getVisibility();
+                }
+                int desired = hide ? View.GONE : visibility;
+                if (child.getVisibility() != desired) {
+                    child.setVisibility(desired);
+                }
+                dividerHidden = hide;
             }
-            child.setLayoutParams(params);
+            if (layoutChanged) {
+                child.setLayoutParams(params);
+            }
         }
     }
 

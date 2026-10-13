@@ -11,6 +11,8 @@ import android.util.Log;
 /** One-shot authenticated bridge that makes the settings Provider visible to the host. */
 public final class MainActivity extends Activity {
     private static final String TAG = "FuckBaiduInput";
+    private static final ModuleDiagnostics DIAGNOSTICS =
+            new ModuleDiagnostics((priority, message) -> Log.println(priority, TAG, message));
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,7 +59,6 @@ public final class MainActivity extends Activity {
                     HookSettingsContract.PROVIDER_URI,
                     grants
             );
-            Log.i(TAG, "settings Provider visibility prepared");
             startIntentSenderForResult(
                     destination.getIntentSender(),
                     -1,
@@ -68,7 +69,7 @@ public final class MainActivity extends Activity {
             );
             setResult(RESULT_OK);
         } catch (IntentSender.SendIntentException | RuntimeException failure) {
-            Log.w(TAG, "settings Provider visibility preparation failed", failure);
+            DIAGNOSTICS.error("settings_bridge", "provider_visibility", failure);
         } finally {
             finish();
         }

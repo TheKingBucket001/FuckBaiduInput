@@ -6,11 +6,15 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -19,9 +23,16 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 /** Builds module controls with the host's own COUI preference classes. */
 final class HostSettingsUi {
+    private static final Executor SETTINGS_WRITES = Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "FuckBaiduInput-settings");
+        thread.setDaemon(true);
+        return thread;
+    });
     static final String ACTION = "com.fuckbaiduinput.action.HOOK_SETTINGS";
     static final String EXTRA_PAGE = "com.fuckbaiduinput.extra.PAGE";
     static final String EXTRA_SCHEMA = "com.fuckbaiduinput.extra.SCHEMA";
@@ -95,6 +106,8 @@ final class HostSettingsUi {
     interface FeatureAccess {
         boolean isEnabled(HookFeature feature);
 
+        FeatureSnapshot snapshot();
+
         boolean writeFlags(Context context, Map<HookFeature, Boolean> flags);
     }
 
@@ -136,6 +149,8 @@ final class HostSettingsUi {
     private final Method setClickListenerMethod;
     private final Method setChangeListenerMethod;
     private final Method setCheckedMethod;
+    private final Method setEnabledMethod;
+    private final Handler settingsHandler = new Handler(Looper.getMainLooper());
     private String lastStartedPage;
     private long lastStartedAt;
     private boolean compactStyleFailureLogged;
@@ -166,7 +181,8 @@ final class HostSettingsUi {
             Method setOrderMethod,
             Method setClickListenerMethod,
             Method setChangeListenerMethod,
-            Method setCheckedMethod
+            Method setCheckedMethod,
+            Method setEnabledMethod
     ) {
         this.featureAccess = featureAccess;
         this.logger = logger;
@@ -194,6 +210,7 @@ final class HostSettingsUi {
         this.setClickListenerMethod = setClickListenerMethod;
         this.setChangeListenerMethod = setChangeListenerMethod;
         this.setCheckedMethod = setCheckedMethod;
+        this.setEnabledMethod = setEnabledMethod;
     }
 
     static HostSettingsUi resolve(
@@ -294,7 +311,8 @@ final class HostSettingsUi {
                         void.class,
                         changeListenerClass
                 ),
-                findMethod(twoStatePreferenceClass, "u1", void.class, boolean.class)
+                findMethod(twoStatePreferenceClass, "u1", void.class, boolean.class),
+                findMethod(preferenceClass, "Z0", void.class, boolean.class)
         );
     }
 
@@ -435,8 +453,10 @@ final class HostSettingsUi {
 
         Object batchSwitch = newSwitchPreference(activity);
         setTitleMethod.invoke(batchSwitch, "\u672c\u7ec4\u5168\u90e8\u542f\u7528");
-        setCheckedMethod.invoke(batchSwitch, allEnabled(features));
         List<Object> childSwitches = new ArrayList<>(features.length);
+        PageSubmission submission = new PageSubmission(activity, features, batchSwitch,
+                childSwitches, featureAccess.snapshot());
+        setCheckedMethod.invoke(batchSwitch, allEnabled(features, submission.confirmed));
         setChangeListenerMethod.invoke(batchSwitch, changeProxy(value -> {
             if (!(value instanceof Boolean)) {
                 return false;
@@ -446,17 +466,10 @@ final class HostSettingsUi {
             for (HookFeature feature : features) {
                 changes.put(feature, enabled);
             }
-            if (!featureAccess.writeFlags(activity, changes)) {
-                return false;
-            }
-            try {
-                for (Object child : childSwitches) {
-                    setCheckedMethod.invoke(child, enabled);
-                }
-            } catch (Throwable t) {
-                logger.log("batch switch refresh failed: " + t);
-            }
-            return true;
+            submitFlags(submission, changes);
+            // COUI restores the current switch immediately; only the confirmed result
+            // below changes its checked state. No local Preference value is persisted.
+            return false;
         }));
         setClickListenerMethod.invoke(batchSwitch, clickProxy(() -> true));
         add(batchCategory, batchSwitch);
@@ -473,25 +486,139 @@ final class HostSettingsUi {
             if (summary != null) {
                 setSummaryMethod.invoke(child, summary);
             }
-            setCheckedMethod.invoke(child, featureAccess.isEnabled(feature));
+            setCheckedMethod.invoke(child, submission.confirmed.isEnabled(feature));
             setChangeListenerMethod.invoke(child, changeProxy(value -> {
                 if (!(value instanceof Boolean)) {
                     return false;
                 }
                 Map<HookFeature, Boolean> changes = new LinkedHashMap<>();
                 changes.put(feature, (Boolean) value);
-                if (!featureAccess.writeFlags(activity, changes)) {
-                    return false;
-                }
-                try {
-                    setCheckedMethod.invoke(batchSwitch, allEnabled(features));
-                } catch (Throwable t) {
-                    logger.log("category switch refresh failed: " + t);
-                }
-                return true;
+                submitFlags(submission, changes);
+                return false;
             }));
             setClickListenerMethod.invoke(child, clickProxy(() -> true));
             add(featureCategory, child);
+        }
+    }
+
+    private static final class PageSubmission {
+        final WeakReference<Activity> owner;
+        final HookFeature[] features;
+        final Object batchSwitch;
+        final List<Object> childSwitches;
+        final PreferenceCommitSession session = new PreferenceCommitSession();
+        FeatureSnapshot confirmed;
+        boolean applying;
+
+        PageSubmission(Activity owner, HookFeature[] features, Object batchSwitch,
+                List<Object> childSwitches, FeatureSnapshot confirmed) {
+            this.owner = new WeakReference<>(owner);
+            this.features = features.clone();
+            this.batchSwitch = batchSwitch;
+            this.childSwitches = childSwitches;
+            this.confirmed = confirmed;
+        }
+    }
+
+    private void submitFlags(PageSubmission page, Map<HookFeature, Boolean> changes) {
+        Activity owner = page.owner.get();
+        if (page.applying || owner == null || owner.isFinishing() || owner.isDestroyed()) {
+            return;
+        }
+        long token = page.session.begin();
+        if (token == 0L) {
+            return;
+        }
+        try {
+            setSubmissionEnabled(page, false);
+            Context context = owner.getApplicationContext();
+            if (context == null) {
+                throw new IllegalStateException("host application context unavailable");
+            }
+            Map<HookFeature, Boolean> requested = new LinkedHashMap<>(changes);
+            WeakReference<PageSubmission> pending = new WeakReference<>(page);
+            SETTINGS_WRITES.execute(() -> {
+                boolean committed;
+                try {
+                    committed = featureAccess.writeFlags(context, requested);
+                } catch (Throwable failure) {
+                    logger.log("settings background submission failed: " + failure);
+                    committed = false;
+                }
+                final boolean success = committed;
+                if (!settingsHandler.post(() -> {
+                    try {
+                        finishSubmission(pending, token, success);
+                    } catch (Throwable failure) {
+                        logger.log("settings result handling failed: " + failure);
+                    }
+                })) {
+                    logger.log("settings result dispatch failed");
+                }
+            });
+        } catch (Throwable failure) {
+            page.session.complete(token, true);
+            restoreSubmission(page, false);
+            logger.log("settings submission scheduling failed: " + failure);
+        }
+    }
+
+    private void finishSubmission(WeakReference<PageSubmission> pending, long token, boolean success) {
+        PageSubmission page = pending.get();
+        if (page == null) {
+            return;
+        }
+        Activity owner = page.owner.get();
+        if (!page.session.complete(token, owner != null && !owner.isFinishing()
+                && !owner.isDestroyed())) {
+            return;
+        }
+        restoreSubmission(page, success);
+        if (!success) {
+            Toast.makeText(owner, "设置保存失败，请稍后重试", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void restoreSubmission(PageSubmission page, boolean success) {
+        page.applying = true;
+        try {
+            if (success) {
+                page.confirmed = featureAccess.snapshot();
+            }
+            for (int i = 0; i < page.features.length; i++) {
+                setCheckedMethod.invoke(page.childSwitches.get(i),
+                        page.confirmed.isEnabled(page.features[i]));
+            }
+            setCheckedMethod.invoke(page.batchSwitch, allEnabled(page.features, page.confirmed));
+        } catch (Throwable failure) {
+            logger.log("settings confirmed state refresh failed: " + failure);
+        } finally {
+            page.applying = false;
+            try {
+                setSubmissionEnabled(page, true);
+            } catch (Throwable failure) {
+                logger.log("settings controls restoration failed: " + failure);
+            }
+        }
+    }
+
+    private void setSubmissionEnabled(PageSubmission page, boolean enabled)
+            throws ReflectiveOperationException {
+        List<Object> controls = new ArrayList<>(page.childSwitches.size() + 1);
+        controls.add(page.batchSwitch);
+        controls.addAll(page.childSwitches);
+        ReflectiveOperationException firstFailure = null;
+        for (Object control : controls) {
+            try {
+                setEnabledMethod.invoke(control, enabled);
+            } catch (ReflectiveOperationException failure) {
+                if (firstFailure == null) {
+                    firstFailure = failure;
+                }
+            }
+        }
+        if (firstFailure != null) {
+            throw firstFailure;
         }
     }
 
@@ -662,9 +789,9 @@ final class HostSettingsUi {
         }
     }
 
-    private boolean allEnabled(HookFeature[] features) {
+    private static boolean allEnabled(HookFeature[] features, FeatureSnapshot snapshot) {
         for (HookFeature feature : features) {
-            if (!featureAccess.isEnabled(feature)) {
+            if (!snapshot.isEnabled(feature)) {
                 return false;
             }
         }

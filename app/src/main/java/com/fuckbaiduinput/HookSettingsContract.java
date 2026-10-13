@@ -21,11 +21,13 @@ public final class HookSettingsContract {
     public static final String RESULT_OK = "ok";
     public static final String RESULT_REVISION = "revision";
     public static final String RESULT_ERROR = "error";
+    public static final String RESULT_SNAPSHOT = "snapshot";
 
     public static final String REMOTE_PREFERENCES_GROUP = "hook_settings_v1";
-    public static final int SCHEMA_VERSION = 1;
-    public static final String SCHEMA_VERSION_KEY = "schema_version";
-    public static final String REVISION_KEY = "revision";
+    public static final int SCHEMA_VERSION = FeatureConfiguration.SCHEMA_VERSION;
+    public static final String SCHEMA_VERSION_KEY = FeatureConfiguration.SCHEMA_KEY;
+    public static final String REVISION_KEY = FeatureConfiguration.REVISION_KEY;
+    public static final String GENERATION_KEY = FeatureConfiguration.GENERATION_KEY;
 
     public static final String ERROR_UNSUPPORTED_METHOD = "unsupported_method";
     public static final String ERROR_INVALID_CALLER = "invalid_caller";
