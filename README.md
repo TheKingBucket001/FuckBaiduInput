@@ -40,14 +40,6 @@ FuckBaiduInput 将可选的本地 Hook 控制项嵌入 OPPO 定制版百度输�
 
 ## 兼容性
 
-| 项目 | 当前支持 |
-| --- | --- |
-| 宿主包名 | `com.baidu.input_oppo` |
-| 宿主版本 | `8.5.302.367` |
-| versionCode | `7244` |
-| 模块环境 | LSPosed / libxposed API 101 |
-| 当前发行版 | `v0.8.3 / 15` |
-
 其他版本尚未完成适配。模块会校验包名、版本和 APK 身份；校验失败时不会安装业务 Hook。
 
 `v0.8.3`：模块初始化日志量减少约 **98.6%**，设置页冷启动耗时中位数降低约 **8.1%**、P95 降低约 **13.1%**。
@@ -81,15 +73,6 @@ FuckBaiduInput 将可选的本地 Hook 控制项嵌入 OPPO 定制版百度输�
 - 使用问题、兼容性和界面反馈，请提交至 [Issues](https://github.com/TheKingBucket001/FuckBaiduInput/issues)。
 - 涉及隐私、越权访问或安全漏洞，请先阅读 [安全策略](SECURITY.md)，避免公开敏感数据或漏洞细节。
 - 参与代码、文档或图片改进，请阅读 [贡献指南](CONTRIBUTING.md)，了解本地检查、真机验证和提交要求。
-
-## 项目链接
-
-| 链接 | 地址 |
-| --- | --- |
-| 主页 | [TheKingBucket001/FuckBaiduInput](https://github.com/TheKingBucket001/FuckBaiduInput) |
-| 下载 | [GitHub Releases](https://github.com/TheKingBucket001/FuckBaiduInput/releases) |
-| 问题反馈 | [Issues](https://github.com/TheKingBucket001/FuckBaiduInput/issues) |
-| 构建状态 | [GitHub Actions](https://github.com/TheKingBucket001/FuckBaiduInput/actions) |
 
 ## 许可证
 
